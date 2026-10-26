@@ -4,6 +4,14 @@ import 'package:pickup_table/core/constants/app_constants.dart';
 import 'package:pickup_table/domain/entities/index.dart';
 
 class OrderManager {
+  // 테마(그리드) 모드 여부 — PickupTableCubit이 state.themeOverride2가 바뀔
+  // 때마다 갱신한다. 기본값 true — PickupTableState.themeOverride2가 이제
+  // Forest Green으로 기본 적용되어 있어 앱이 항상 그리드 모드로 부팅되므로
+  // 이쪽 기본값도 맞춰뒀다(자유매칭은 FlowHub Reset을 눌러야만 도달, 그때
+  // false로 바뀜). false일 때는 addReadyOrder가 이 기능 도입 이전과 완전히
+  // 동일하게 동작(잔 전부 완료 신호가 와야 대기열 등록).
+  static bool gridModeEnabled = true;
+
   // 1. KDS에서 들어온 제조 완료 주문들 (대기열)
   static final List<Map<String, dynamic>> _waitingQueue = [];
 
@@ -95,8 +103,14 @@ class OrderManager {
 
     print("📦 [Manager] 제조 완료 수신: $no (${_receivedReadyCounts[no]}/$totalRequired)");
 
-    // 🌟 전체 수량이 모두 완료 신호로 들어왔을 때만 진짜 대기열에 추가!
-    if (_receivedReadyCounts[no]! >= totalRequired) {
+    // 그리드 모드: 잔 중 아무거나 하나만 완료되어도 즉시 대기열에 올려
+    // 가이드 사각형 그룹(잔수만큼의 칸)이 바로 생기게 한다 — 나머지 잔들이
+    // 실제 테이블에 놓였는지는 그리드 칸 점유 여부로 별도 판정하므로, 여기서
+    // 더 기다릴 이유가 없다. 자유매칭(그리드 꺼짐) 모드는 기존 그대로 전체
+    // 수량이 다 들어와야 대기열에 올라간다.
+    final bool shouldEnqueueNow =
+        gridModeEnabled ? true : _receivedReadyCounts[no]! >= totalRequired;
+    if (shouldEnqueueNow) {
       if (_waitingQueue.length >= maxQueueSize) {
         _waitingQueue.removeAt(0);
       }

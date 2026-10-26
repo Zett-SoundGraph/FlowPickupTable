@@ -16,7 +16,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # https://developer.apple.com/library/archive/documentation/General/Reference/InfoPlistKeyReference/Articles/CoreFoundationKeys.html
 # In Windows, build-name is used as the major, minor, and patch parts
 # of the product and file versions while build-number is used as the build suffix.
-version: 1.0.0+1
+version: 0.10.1012+01
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -41,6 +41,7 @@ dependencies:
   media_kit_libs_android_video: ^1.0.0
   ml_linalg: ^13.12.7
   shared_preferences: ^2.2.2
+  path_provider: ^2.1.2
   mqtt_client: ^10.9.0
   dio: ^5.9.2
   csv: ^6.0.0
@@ -55,6 +56,21 @@ dev_dependencies:
   build_runner: ^2.15.0
   injectable_generator: ^2.9.1
   freezed: ^3.2.3
+
+# Both pinned below minSdk=24+ versions that conflict with this fleet's
+# org-wide minSdk=23 floor (the oldest device, an Android 6 FrameTV, needs
+# 23) — until either the fleet's minSdk floor moves up or these plugins
+# backport a minSdk-23-compatible release.
+# - path_provider_android 2.2.20+ raised minSdk to 24; 2.2.19 (same version
+#   flowhub resolves to) is still 21.
+# - shared_preferences_android 2.4.14+ raised minSdk to 24 (confirmed via
+#   its own android/build.gradle in the pub cache); 2.4.13 (same version
+#   CafeBeta-Kiosk resolves to) is still 21.
+# - video_player_android 2.9.0+ raised minSdk to 24; 2.8.15 is still 21.
+dependency_overrides:
+  path_provider_android: 2.2.19
+  shared_preferences_android: 2.4.13
+  video_player_android: 2.8.15
 
   # The "flutter_lints" package below contains a set of recommended lints to
   # encourage good coding practices. The lint set provided by the package is
@@ -83,6 +99,11 @@ flutter:
     - assets/images/bg.png
     - assets/images/bg-object.png
     - assets/images/bg-hand.png
+    - assets/images/menu-image.png
+    - assets/images/tech-image.png
+    - assets/images/loop-menu-image-1.png
+    - assets/images/loop-menu-image-2.png
+    - assets/images/loop-menu-image-3.png
 
 
   fonts:
