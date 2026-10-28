@@ -21,6 +21,12 @@ class OrderRepositoryImpl implements OrderRepository {
   Duration get ghostDuration => OrderManager.ghostDuration;
 
   @override
+  bool get gridModeEnabled => OrderManager.gridModeEnabled;
+
+  @override
+  set gridModeEnabled(bool value) => OrderManager.gridModeEnabled = value;
+
+  @override
   void addReadyOrder(
     String orderNo,
     String menuName,

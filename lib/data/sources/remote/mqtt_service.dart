@@ -42,6 +42,9 @@ class MqttService {
   // calibrationStatusStream과 짝을 이룸
   static const String _topicCalibrationStatus =
       'beta/pickuptable/calibration_status';
+  // beta/flowhub/pickuptable에 ORDER_READY/START_CALIBRATION과 같은 채널을
+  // 공유하는 3번째 type — FlowHub의 Pickup Table Theme 화면이 보냄.
+  // MqttDataSource.publishPickupTableTheme/ResetPickupTableTheme와 짝을 이룸.
   // Customer scans their receipt's QR (currently tested by scanning a label
   // instead, since the receipt-printer QR isn't wired up yet) — payload
   // just needs an `orderNo` field; whichever station scans it is
@@ -61,7 +64,16 @@ class MqttService {
   final Function(TofFrame frame)? onTofFrame;
   // beta/flowhub/pickuptable에서 온 ORDER_READY/START_CALIBRATION 처리 콜백
   final VoidCallback? onOrderReady;
-  final Function(double height)? onCalibrationRequested;
+  final Function(double height, String displayModel, double edgeMarginMm,
+      double? displayWidthMm, double? displayHeightMm)? onCalibrationRequested;
+  // See SET_PICKUP_TABLE_THEME's dispatch above — the raw {background,
+  // style, dotStyle, backgroundImage, colorOverrides} JSON when a theme is
+  // selected, or null on Reset.
+  final Function(Map<String, dynamic>? themeJson)? onThemeChanged;
+  // FlowHub's Pickup Table Theme screen's "Create/Clear Test Orders"
+  // buttons — see CREATE_TEST_ORDERS/CLEAR_TEST_ORDERS dispatch below.
+  final VoidCallback? onCreateTestOrders;
+  final VoidCallback? onClearTestOrders;
 
   MqttService({
     this.onLog,
@@ -69,6 +81,9 @@ class MqttService {
     this.onTofFrame,
     this.onOrderReady,
     this.onCalibrationRequested,
+    this.onThemeChanged,
+    this.onCreateTestOrders,
+    this.onClearTestOrders,
   });
 
   Future<void> connect() async {
@@ -173,8 +188,25 @@ class MqttService {
               onLog?.call('📥 ORDER_READY 수신: ${json['orderNo']}');
               onOrderReady?.call();
             } else if (type == 'START_CALIBRATION') {
-              onCalibrationRequested
-                  ?.call((json['height'] as num?)?.toDouble() ?? 1000.0);
+              onCalibrationRequested?.call(
+                (json['height'] as num?)?.toDouble() ?? 1000.0,
+                json['displayModel']?.toString() ?? 'AIO_550A',
+                (json['edgeMarginMm'] as num?)?.toDouble() ?? 40.0,
+                (json['displayWidthMm'] as num?)?.toDouble(),
+                (json['displayHeightMm'] as num?)?.toDouble(),
+              );
+            } else if (type == 'SET_PICKUP_TABLE_THEME') {
+              // FlowHub's Pickup Table Theme screen. No `theme` name field
+              // at all (only ever this one design), so `background`
+              // absent/null is what signals Reset (back to the original,
+              // unthemed circle-based rendering — see
+              // PickupTableState.themeOverride).
+              final background = json['background']?.toString();
+              onThemeChanged?.call(background == null || background.isEmpty ? null : json);
+            } else if (type == 'CREATE_TEST_ORDERS') {
+              onCreateTestOrders?.call();
+            } else if (type == 'CLEAR_TEST_ORDERS') {
+              onClearTestOrders?.call();
             } else {
               onLog?.call('⚠️ $_topicPickuptableCommand: 알 수 없는 type=$type');
             }

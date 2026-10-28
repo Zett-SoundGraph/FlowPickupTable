@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'package:pickup_table/domain/entities/index.dart';
+import 'package:pickup_table/domain/entities/pickup_table_theme/pickup_table_theme_selection.dart';
 
 part 'pickup_table_state.freezed.dart';
 
@@ -26,6 +27,19 @@ abstract class PickupTableState with _$PickupTableState {
     @Default(false) bool isConsoleOpen,
     @Default(<LogItem>[]) List<LogItem> consoleLogs,
     @Default(<String, Offset>{}) Map<String, Offset> guidePositions,
+    // null = original circle-based rendering (unthemed) — what FlowHub's
+    // Pickup Table Theme screen's Reset button restores. Non-null switches
+    // guide/placed/thank-you rendering to the themed square-card widgets
+    // (see themed_slot_widgets.dart), set from a SET_PICKUP_TABLE_THEME
+    // message on beta/flowhub/pickuptable. Defaults to Forest Green (not
+    // null) — themed grid mode is now the confirmed boot-up look,
+    // free/untargeted matching is only reached via FlowHub's Reset button
+    // (see PickupTableThemeCubit's own doc comment on _lastApplied).
+    @Default(PickupTableThemeSelection(
+      background: PickupTableThemeBackground.forestGreen,
+      style: PickupTableThemeStyle.fill,
+    ))
+    PickupTableThemeSelection? themeOverride,
     // Bumped on every emit that should force a rebuild regardless of
     // whether any individual field above happens to compare equal (e.g.
     // the same List/Map instance mutated in place) — mirrors

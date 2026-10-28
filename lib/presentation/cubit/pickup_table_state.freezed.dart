@@ -30,7 +30,16 @@ mixin _$PickupTableState {
   bool get isConsoleOpen;
   List<LogItem> get consoleLogs;
   Map<String, Offset>
-      get guidePositions; // Bumped on every emit that should force a rebuild regardless of
+      get guidePositions; // null = original circle-based rendering (unthemed) — what FlowHub's
+// Pickup Table Theme screen's Reset button restores. Non-null switches
+// guide/placed/thank-you rendering to the themed square-card widgets
+// (see themed_slot_widgets.dart), set from a SET_PICKUP_TABLE_THEME
+// message on beta/flowhub/pickuptable. Defaults to Forest Green (not
+// null) — themed grid mode is now the confirmed boot-up look,
+// free/untargeted matching is only reached via FlowHub's Reset button
+// (see PickupTableThemeCubit's own doc comment on _lastApplied).
+  PickupTableThemeSelection?
+      get themeOverride; // Bumped on every emit that should force a rebuild regardless of
 // whether any individual field above happens to compare equal (e.g.
 // the same List/Map instance mutated in place) — mirrors
 // FlowBoardState.clockTick's own reasoning.
@@ -74,6 +83,8 @@ mixin _$PickupTableState {
                 .equals(other.consoleLogs, consoleLogs) &&
             const DeepCollectionEquality()
                 .equals(other.guidePositions, guidePositions) &&
+            (identical(other.themeOverride, themeOverride) ||
+                other.themeOverride == themeOverride) &&
             (identical(other.frameRevision, frameRevision) ||
                 other.frameRevision == frameRevision));
   }
@@ -94,11 +105,12 @@ mixin _$PickupTableState {
       isConsoleOpen,
       const DeepCollectionEquality().hash(consoleLogs),
       const DeepCollectionEquality().hash(guidePositions),
+      themeOverride,
       frameRevision);
 
   @override
   String toString() {
-    return 'PickupTableState(isCalibrating: $isCalibrating, latestRawForCalib: $latestRawForCalib, objects: $objects, highlightedOrders: $highlightedOrders, pickupGhostCircles: $pickupGhostCircles, showRawData: $showRawData, lastFrameObjects: $lastFrameObjects, isHandDetected: $isHandDetected, iconImages: $iconImages, currentLatestFrameId: $currentLatestFrameId, isConsoleOpen: $isConsoleOpen, consoleLogs: $consoleLogs, guidePositions: $guidePositions, frameRevision: $frameRevision)';
+    return 'PickupTableState(isCalibrating: $isCalibrating, latestRawForCalib: $latestRawForCalib, objects: $objects, highlightedOrders: $highlightedOrders, pickupGhostCircles: $pickupGhostCircles, showRawData: $showRawData, lastFrameObjects: $lastFrameObjects, isHandDetected: $isHandDetected, iconImages: $iconImages, currentLatestFrameId: $currentLatestFrameId, isConsoleOpen: $isConsoleOpen, consoleLogs: $consoleLogs, guidePositions: $guidePositions, themeOverride: $themeOverride, frameRevision: $frameRevision)';
   }
 }
 
@@ -122,6 +134,7 @@ abstract mixin class $PickupTableStateCopyWith<$Res> {
       bool isConsoleOpen,
       List<LogItem> consoleLogs,
       Map<String, Offset> guidePositions,
+      PickupTableThemeSelection? themeOverride,
       int frameRevision});
 }
 
@@ -151,6 +164,7 @@ class _$PickupTableStateCopyWithImpl<$Res>
     Object? isConsoleOpen = null,
     Object? consoleLogs = null,
     Object? guidePositions = null,
+    Object? themeOverride = freezed,
     Object? frameRevision = null,
   }) {
     return _then(_self.copyWith(
@@ -206,6 +220,10 @@ class _$PickupTableStateCopyWithImpl<$Res>
           ? _self.guidePositions
           : guidePositions // ignore: cast_nullable_to_non_nullable
               as Map<String, Offset>,
+      themeOverride: freezed == themeOverride
+          ? _self.themeOverride
+          : themeOverride // ignore: cast_nullable_to_non_nullable
+              as PickupTableThemeSelection?,
       frameRevision: null == frameRevision
           ? _self.frameRevision
           : frameRevision // ignore: cast_nullable_to_non_nullable
@@ -321,6 +339,7 @@ extension PickupTableStatePatterns on PickupTableState {
             bool isConsoleOpen,
             List<LogItem> consoleLogs,
             Map<String, Offset> guidePositions,
+            PickupTableThemeSelection? themeOverride,
             int frameRevision)?
         $default, {
     required TResult orElse(),
@@ -342,6 +361,7 @@ extension PickupTableStatePatterns on PickupTableState {
             _that.isConsoleOpen,
             _that.consoleLogs,
             _that.guidePositions,
+            _that.themeOverride,
             _that.frameRevision);
       case _:
         return orElse();
@@ -377,6 +397,7 @@ extension PickupTableStatePatterns on PickupTableState {
             bool isConsoleOpen,
             List<LogItem> consoleLogs,
             Map<String, Offset> guidePositions,
+            PickupTableThemeSelection? themeOverride,
             int frameRevision)
         $default,
   ) {
@@ -397,6 +418,7 @@ extension PickupTableStatePatterns on PickupTableState {
             _that.isConsoleOpen,
             _that.consoleLogs,
             _that.guidePositions,
+            _that.themeOverride,
             _that.frameRevision);
       case _:
         throw StateError('Unexpected subclass');
@@ -431,6 +453,7 @@ extension PickupTableStatePatterns on PickupTableState {
             bool isConsoleOpen,
             List<LogItem> consoleLogs,
             Map<String, Offset> guidePositions,
+            PickupTableThemeSelection? themeOverride,
             int frameRevision)?
         $default,
   ) {
@@ -451,6 +474,7 @@ extension PickupTableStatePatterns on PickupTableState {
             _that.isConsoleOpen,
             _that.consoleLogs,
             _that.guidePositions,
+            _that.themeOverride,
             _that.frameRevision);
       case _:
         return null;
@@ -476,6 +500,9 @@ class _PickupTableState implements PickupTableState {
       this.isConsoleOpen = false,
       final List<LogItem> consoleLogs = const <LogItem>[],
       final Map<String, Offset> guidePositions = const <String, Offset>{},
+      this.themeOverride = const PickupTableThemeSelection(
+          background: PickupTableThemeBackground.forestGreen,
+          style: PickupTableThemeStyle.fill),
       this.frameRevision = 0})
       : _objects = objects,
         _highlightedOrders = highlightedOrders,
@@ -573,6 +600,17 @@ class _PickupTableState implements PickupTableState {
     return EqualUnmodifiableMapView(_guidePositions);
   }
 
+// null = original circle-based rendering (unthemed) — what FlowHub's
+// Pickup Table Theme screen's Reset button restores. Non-null switches
+// guide/placed/thank-you rendering to the themed square-card widgets
+// (see themed_slot_widgets.dart), set from a SET_PICKUP_TABLE_THEME
+// message on beta/flowhub/pickuptable. Defaults to Forest Green (not
+// null) — themed grid mode is now the confirmed boot-up look,
+// free/untargeted matching is only reached via FlowHub's Reset button
+// (see PickupTableThemeCubit's own doc comment on _lastApplied).
+  @override
+  @JsonKey()
+  final PickupTableThemeSelection? themeOverride;
 // Bumped on every emit that should force a rebuild regardless of
 // whether any individual field above happens to compare equal (e.g.
 // the same List/Map instance mutated in place) — mirrors
@@ -619,6 +657,8 @@ class _PickupTableState implements PickupTableState {
                 .equals(other._consoleLogs, _consoleLogs) &&
             const DeepCollectionEquality()
                 .equals(other._guidePositions, _guidePositions) &&
+            (identical(other.themeOverride, themeOverride) ||
+                other.themeOverride == themeOverride) &&
             (identical(other.frameRevision, frameRevision) ||
                 other.frameRevision == frameRevision));
   }
@@ -639,11 +679,12 @@ class _PickupTableState implements PickupTableState {
       isConsoleOpen,
       const DeepCollectionEquality().hash(_consoleLogs),
       const DeepCollectionEquality().hash(_guidePositions),
+      themeOverride,
       frameRevision);
 
   @override
   String toString() {
-    return 'PickupTableState(isCalibrating: $isCalibrating, latestRawForCalib: $latestRawForCalib, objects: $objects, highlightedOrders: $highlightedOrders, pickupGhostCircles: $pickupGhostCircles, showRawData: $showRawData, lastFrameObjects: $lastFrameObjects, isHandDetected: $isHandDetected, iconImages: $iconImages, currentLatestFrameId: $currentLatestFrameId, isConsoleOpen: $isConsoleOpen, consoleLogs: $consoleLogs, guidePositions: $guidePositions, frameRevision: $frameRevision)';
+    return 'PickupTableState(isCalibrating: $isCalibrating, latestRawForCalib: $latestRawForCalib, objects: $objects, highlightedOrders: $highlightedOrders, pickupGhostCircles: $pickupGhostCircles, showRawData: $showRawData, lastFrameObjects: $lastFrameObjects, isHandDetected: $isHandDetected, iconImages: $iconImages, currentLatestFrameId: $currentLatestFrameId, isConsoleOpen: $isConsoleOpen, consoleLogs: $consoleLogs, guidePositions: $guidePositions, themeOverride: $themeOverride, frameRevision: $frameRevision)';
   }
 }
 
@@ -669,6 +710,7 @@ abstract mixin class _$PickupTableStateCopyWith<$Res>
       bool isConsoleOpen,
       List<LogItem> consoleLogs,
       Map<String, Offset> guidePositions,
+      PickupTableThemeSelection? themeOverride,
       int frameRevision});
 }
 
@@ -698,6 +740,7 @@ class __$PickupTableStateCopyWithImpl<$Res>
     Object? isConsoleOpen = null,
     Object? consoleLogs = null,
     Object? guidePositions = null,
+    Object? themeOverride = freezed,
     Object? frameRevision = null,
   }) {
     return _then(_PickupTableState(
@@ -753,6 +796,10 @@ class __$PickupTableStateCopyWithImpl<$Res>
           ? _self._guidePositions
           : guidePositions // ignore: cast_nullable_to_non_nullable
               as Map<String, Offset>,
+      themeOverride: freezed == themeOverride
+          ? _self.themeOverride
+          : themeOverride // ignore: cast_nullable_to_non_nullable
+              as PickupTableThemeSelection?,
       frameRevision: null == frameRevision
           ? _self.frameRevision
           : frameRevision // ignore: cast_nullable_to_non_nullable

@@ -14,6 +14,12 @@ abstract interface class OrderRepository {
   List<GhostOrder> get ghostMemory;
   Duration get ghostDuration;
 
+  /// See OrderManager.gridModeEnabled's doc comment — false (default)
+  /// leaves addReadyOrder's queue-enqueue timing byte-for-byte identical
+  /// to before the themed grid feature existed.
+  bool get gridModeEnabled;
+  set gridModeEnabled(bool value);
+
   void addReadyOrder(
     String orderNo,
     String menuName,

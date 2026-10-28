@@ -19,8 +19,12 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
   final StreamController<String> _customerScanController = StreamController<String>.broadcast();
   final StreamController<TofFrame> _tofFrameController = StreamController<TofFrame>.broadcast();
   final StreamController<void> _orderReadyController = StreamController<void>.broadcast();
-  final StreamController<double> _calibrationRequestedController =
-      StreamController<double>.broadcast();
+  final StreamController<CalibrationRequest> _calibrationRequestedController =
+      StreamController<CalibrationRequest>.broadcast();
+  final StreamController<Map<String, dynamic>?> _themeChangedController =
+      StreamController<Map<String, dynamic>?>.broadcast();
+  final StreamController<void> _createTestOrdersController = StreamController<void>.broadcast();
+  final StreamController<void> _clearTestOrdersController = StreamController<void>.broadcast();
 
   PickupMqttRepositoryImpl() {
     _service = MqttService(
@@ -28,7 +32,18 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
       onCustomerScan: (orderNo) => _customerScanController.add(orderNo),
       onTofFrame: (frame) => _tofFrameController.add(frame),
       onOrderReady: () => _orderReadyController.add(null),
-      onCalibrationRequested: (height) => _calibrationRequestedController.add(height),
+      onCalibrationRequested: (height, displayModel, edgeMarginMm,
+              displayWidthMm, displayHeightMm) =>
+          _calibrationRequestedController.add((
+            height: height,
+            displayModel: displayModel,
+            edgeMarginMm: edgeMarginMm,
+            displayWidthMm: displayWidthMm,
+            displayHeightMm: displayHeightMm,
+          )),
+      onThemeChanged: (themeJson) => _themeChangedController.add(themeJson),
+      onCreateTestOrders: () => _createTestOrdersController.add(null),
+      onClearTestOrders: () => _clearTestOrdersController.add(null),
     );
     _service.isConnected.addListener(_forwardConnectionState);
   }
@@ -51,7 +66,17 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
   Stream<void> get orderReadyStream => _orderReadyController.stream;
 
   @override
-  Stream<double> get calibrationRequestedStream => _calibrationRequestedController.stream;
+  Stream<CalibrationRequest> get calibrationRequestedStream =>
+      _calibrationRequestedController.stream;
+
+  @override
+  Stream<Map<String, dynamic>?> get themeChangedStream => _themeChangedController.stream;
+
+  @override
+  Stream<void> get createTestOrdersStream => _createTestOrdersController.stream;
+
+  @override
+  Stream<void> get clearTestOrdersStream => _clearTestOrdersController.stream;
 
   @override
   Future<void> connect() => _service.connect();
@@ -76,5 +101,8 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
     unawaited(_tofFrameController.close());
     unawaited(_orderReadyController.close());
     unawaited(_calibrationRequestedController.close());
+    unawaited(_themeChangedController.close());
+    unawaited(_createTestOrdersController.close());
+    unawaited(_clearTestOrdersController.close());
   }
 }

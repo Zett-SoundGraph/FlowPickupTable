@@ -44,3 +44,6 @@ app.*.map.json
 /android/app/release
 
 assets/videos/*.mp4
+
+# scripts/build_apk.sh's same-day build counter (local to this machine)
+.build_number.local

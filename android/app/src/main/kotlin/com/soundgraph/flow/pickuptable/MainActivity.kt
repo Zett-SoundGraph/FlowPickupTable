@@ -1,4 +1,4 @@
-package com.example.pickup_table
+package com.soundgraph.flow.pickuptable
 
 import io.flutter.embedding.android.FlutterActivity
 
