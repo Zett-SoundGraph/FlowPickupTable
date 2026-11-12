@@ -88,6 +88,13 @@ class ThemedGuideSlot extends StatelessWidget {
   final double height;
   final PickupTableThemeColors colors;
   final List<int> rowWidths;
+  // Only set by the Fill Grid Test's "ㄱ"-oriented L-tromino half — see
+  // [steppedCardPath]'s doc comment. Only affects the drawn outline here;
+  // the tag text below stays top-left-anchored regardless, since that
+  // corner is the one half of that shape still keeps (see
+  // [PlacedSlotPainter]'s own mirrored-tag handling for the half that
+  // doesn't).
+  final List<int> rowOffsets;
   final String lang;
   final PickupTableThemeDotStyle dotStyle;
 
@@ -98,6 +105,7 @@ class ThemedGuideSlot extends StatelessWidget {
     required this.height,
     required this.colors,
     this.rowWidths = const [1],
+    this.rowOffsets = const [],
     this.lang = '',
     this.dotStyle = PickupTableThemeDotStyle.standard,
   });
@@ -117,6 +125,7 @@ class ThemedGuideSlot extends StatelessWidget {
                 background: colors.guideBackground,
                 border: colors.guideBorder,
                 rowWidths: rowWidths,
+                rowOffsets: rowOffsets,
                 dotRadius: dotStyle.dotRadius,
                 dotSpacing: dotStyle.dotSpacing,
               ),
@@ -151,6 +160,7 @@ class _ThemeGuideSlotPainter extends CustomPainter {
   final Color background;
   final Color border;
   final List<int> rowWidths;
+  final List<int> rowOffsets;
   final double dotRadius;
   final double dotSpacing;
 
@@ -158,13 +168,14 @@ class _ThemeGuideSlotPainter extends CustomPainter {
     required this.background,
     required this.border,
     this.rowWidths = const [1],
+    this.rowOffsets = const [],
     this.dotRadius = 0.5,
     this.dotSpacing = 3.0,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = steppedCardPath(size, rowWidths, cornerRadius);
+    final path = steppedCardPath(size, rowWidths, cornerRadius, rowOffsets: rowOffsets);
 
     // Translucent full-card wash — new in this design (the original guide
     // slot is always fully transparent).
@@ -189,7 +200,8 @@ class _ThemeGuideSlotPainter extends CustomPainter {
       oldDelegate.dotRadius != dotRadius ||
       oldDelegate.dotSpacing != dotSpacing ||
       oldDelegate.border != border ||
-      !listEquals(oldDelegate.rowWidths, rowWidths);
+      !listEquals(oldDelegate.rowWidths, rowWidths) ||
+      !listEquals(oldDelegate.rowOffsets, rowOffsets);
 }
 
 /// Which of the 3 same-shaped-but-differently-colored states
@@ -215,6 +227,10 @@ class ThemedPlacedSlot extends StatelessWidget {
   final PickupTableThemeColors colors;
   final ThemedPlacedEmphasis emphasis;
   final List<int> rowWidths;
+  // Only set by the Fill Grid Test's "ㄱ"-oriented L-tromino half — see
+  // [steppedCardPath]'s doc comment. Flips the corner tag to bottom-right
+  // (see [PlacedSlotPainter._mirrored]) as well as the outline itself.
+  final List<int> rowOffsets;
   final PickupTableThemeStyle style;
   final String lang;
 
@@ -226,6 +242,7 @@ class ThemedPlacedSlot extends StatelessWidget {
     required this.colors,
     this.emphasis = ThemedPlacedEmphasis.matched,
     this.rowWidths = const [1],
+    this.rowOffsets = const [],
     this.style = PickupTableThemeStyle.line,
     this.lang = '',
   });
@@ -265,6 +282,7 @@ class ThemedPlacedSlot extends StatelessWidget {
               tagBg: lineColor,
               orderNo: orderNo,
               rowWidths: rowWidths,
+              rowOffsets: rowOffsets,
               fill: false,
               fontFamily: fontFamily,
               dividerEndMarginPx: _dividerEndMargin2,
@@ -288,6 +306,7 @@ class ThemedPlacedSlot extends StatelessWidget {
                   gradient: emphasisGradient,
                   orderNo: orderNo,
                   rowWidths: rowWidths,
+                  rowOffsets: rowOffsets,
                   fontFamily: fontFamily,
                   dividerColor: dividerColor,
                 )
@@ -296,6 +315,7 @@ class ThemedPlacedSlot extends StatelessWidget {
                   border: colors.highlightBorderLine,
                   orderNo: orderNo,
                   rowWidths: rowWidths,
+                  rowOffsets: rowOffsets,
                   fontFamily: fontFamily,
                 ),
         ),
@@ -314,6 +334,7 @@ class _ThemeHighlightLinePainter extends CustomPainter {
   final Color border;
   final String orderNo;
   final List<int> rowWidths;
+  final List<int> rowOffsets;
   final String? fontFamily;
 
   const _ThemeHighlightLinePainter({
@@ -321,18 +342,20 @@ class _ThemeHighlightLinePainter extends CustomPainter {
     required this.border,
     required this.orderNo,
     this.rowWidths = const [1],
+    this.rowOffsets = const [],
     this.fontFamily,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    final path = steppedCardPath(size, rowWidths, cornerRadius);
+    final path = steppedCardPath(size, rowWidths, cornerRadius, rowOffsets: rowOffsets);
     canvas.drawPath(path, Paint()..color = background);
     PlacedSlotPainter(
       border: border,
       tagBg: border,
       orderNo: orderNo,
       rowWidths: rowWidths,
+      rowOffsets: rowOffsets,
       fontFamily: fontFamily,
       tagSizePx: _tagSize2,
       textAnchorPx: _tagTextAnchor2,
@@ -346,7 +369,8 @@ class _ThemeHighlightLinePainter extends CustomPainter {
       oldDelegate.border != border ||
       oldDelegate.orderNo != orderNo ||
       oldDelegate.fontFamily != fontFamily ||
-      !listEquals(oldDelegate.rowWidths, rowWidths);
+      !listEquals(oldDelegate.rowWidths, rowWidths) ||
+      !listEquals(oldDelegate.rowOffsets, rowOffsets);
 }
 
 /// Timeout/highlighted, FILL style — the whole card filled with
@@ -362,6 +386,10 @@ class _ThemeHighlightGradientPainter extends CustomPainter {
   final Gradient gradient;
   final String orderNo;
   final List<int> rowWidths;
+  // Only set by the Fill Grid Test's "ㄱ"-oriented L-tromino half — see
+  // [steppedCardPath]'s doc comment. Flips the corner tag/divider to
+  // bottom-right the same way [PlacedSlotPainter._mirrored] does.
+  final List<int> rowOffsets;
   final String? fontFamily;
   final Color? dividerColor;
 
@@ -369,25 +397,28 @@ class _ThemeHighlightGradientPainter extends CustomPainter {
     required this.gradient,
     required this.orderNo,
     this.rowWidths = const [1],
+    this.rowOffsets = const [],
     this.fontFamily,
     this.dividerColor,
   });
 
+  bool get _mirrored => rowOffsets.isNotEmpty && rowOffsets.last != 0;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final path = steppedCardPath(size, rowWidths, cornerRadius);
+    final path = steppedCardPath(size, rowWidths, cornerRadius, rowOffsets: rowOffsets);
     final Rect cardRect = Offset.zero & size;
+    final bool mirrored = _mirrored;
 
     // Divider between the tag corner and the rest of the card — same
     // hypotenuse as PlacedSlotPainter's own fill style, but at this
     // feature's bigger [_tagSize2] and pulled in [_dividerEndMargin2] from each end
     // (per spec — fill style's divider previously ran corner-to-corner
     // flush against the border on both ends).
-    final (Offset dividerStart, Offset dividerEnd) = _insetLine(
-      Offset(0, size.height - _tagSize2),
-      Offset(_tagSize2, size.height),
-      _dividerEndMargin2,
-    );
+    final (Offset hypA, Offset hypB) = tagHypotenuse(size, _tagSize2, mirrored);
+    final (Offset dividerStart, Offset dividerEnd) = _insetLine(hypA, hypB, _dividerEndMargin2);
+    final Offset textAnchor = tagTextAnchorPoint(size, _tagTextAnchor2, mirrored);
+    final double textRotation = tagTextRotation(mirrored);
 
     if (dividerColor != null) {
       // Explicit-color divider/number, no background cutout.
@@ -410,8 +441,8 @@ class _ThemeHighlightGradientPainter extends CustomPainter {
         textDirection: TextDirection.ltr,
       )..layout();
       canvas.save();
-      canvas.translate(_tagTextAnchor2, size.height - _tagTextAnchor2);
-      canvas.rotate(math.pi / 4);
+      canvas.translate(textAnchor.dx, textAnchor.dy);
+      canvas.rotate(textRotation);
       canvas.translate(-textPainter.width / 2, -textPainter.height / 2);
       textPainter.paint(canvas, Offset.zero);
       canvas.restore();
@@ -455,8 +486,8 @@ class _ThemeHighlightGradientPainter extends CustomPainter {
     )..layout();
     canvas.saveLayer(cardRect, Paint()..blendMode = BlendMode.dstOut);
     canvas.save();
-    canvas.translate(_tagTextAnchor2, size.height - _tagTextAnchor2);
-    canvas.rotate(math.pi / 4);
+    canvas.translate(textAnchor.dx, textAnchor.dy);
+    canvas.rotate(textRotation);
     canvas.translate(-textPainter.width / 2, -textPainter.height / 2);
     textPainter.paint(canvas, Offset.zero);
     canvas.restore();
@@ -480,7 +511,8 @@ class _ThemeHighlightGradientPainter extends CustomPainter {
       oldDelegate.orderNo != orderNo ||
       oldDelegate.fontFamily != fontFamily ||
       oldDelegate.dividerColor != dividerColor ||
-      !listEquals(oldDelegate.rowWidths, rowWidths);
+      !listEquals(oldDelegate.rowWidths, rowWidths) ||
+      !listEquals(oldDelegate.rowOffsets, rowOffsets);
 }
 
 /// Post-pickup "thank you" card — text only, no border/fill.

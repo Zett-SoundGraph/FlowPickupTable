@@ -153,6 +153,7 @@ class _AioPickupTableMainState extends State<AioPickupTableMain> with WidgetsBin
               height: bounds.height,
               colors: colors,
               rowWidths: group.rowWidths,
+              rowOffsets: group.rowOffsets,
               lang: group.lang,
               dotStyle: dotStyle,
             ),
@@ -174,6 +175,7 @@ class _AioPickupTableMainState extends State<AioPickupTableMain> with WidgetsBin
                 height: bounds.height,
                 colors: colors,
                 rowWidths: group.rowWidths,
+                rowOffsets: group.rowOffsets,
                 style: style,
                 lang: group.lang,
                 emphasis: switch (group.state) {

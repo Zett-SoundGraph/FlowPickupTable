@@ -93,7 +93,12 @@
         double normTargetY = targetPoints[currentStep].dy / 1080.0;
 
         double dist = math.sqrt(math.pow(normRawX - normTargetX, 2) + math.pow(normRawY - normTargetY, 2));
-        bool currentlyInside = dist < 0.5;
+        // 0.5 -> 0.25: still generous enough for an uncalibrated raw<->screen
+        // mapping to be off on early points (that's what calibration is
+        // solving for), but 0.5 was loose enough that a cup placed near a
+        // DIFFERENT target point (e.g. point 5 at (960,80), normalized
+        // distance ~0.43 from center) would satisfy the center step too.
+        bool currentlyInside = dist < 0.25;
 
         if (_isInsideTarget != currentlyInside) setState(() => _isInsideTarget = currentlyInside);
 
@@ -230,11 +235,16 @@
         final List<math.Point<double>> dst = collectedPairs.map((p) => math.Point(p.dst.dx, p.dst.dy)).toList();
         final List<double> zs = collectedPairs.map((p) => p.z).toList();
 
-        // 1. 새 솔버 호출
-        final hMatrix = _coordinateRepository.solveHomography(src, zs, dst);
+        // 1. 새 솔버 호출 - 광학 중심(cx,cy)도 9개 점의 재투영 오차가
+        // 최소가 되도록 함께 탐색 (센서 해상도 중심 320,240을 그대로
+        // 가정하면, 그 가정과 실제 카메라 중심이 다를 때 캘리브레이션에
+        // 쓴 물체와 다른 높이를 쓰는 물체 - 예: 아이스컵의 가정 높이 -
+        // 에서만 오차가 드러남. 자세한 설명은 HomographySolver.solveWithOptimalCenter() 참고)
+        final result = _coordinateRepository.solveHomographyWithOptimalCenter(src, zs, dst);
 
-        // 2. Transformer에 적용
-        _coordinateRepository.setHomographyMatrix(hMatrix);
+        // 2. Transformer에 적용 (중심점 먼저, 그 다음 그 중심점 기준으로 피팅된 행렬)
+        _coordinateRepository.setOpticalCenter(result.cx, result.cy);
+        _coordinateRepository.setHomographyMatrix(result.matrix);
 
         // 3. 프리뷰 갱신
         _updatePreviewPoints();

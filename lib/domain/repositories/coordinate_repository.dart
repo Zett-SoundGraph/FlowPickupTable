@@ -19,6 +19,10 @@ abstract interface class CoordinateRepository {
 
   void setHomographyMatrix(List<double> matrix);
 
+  /// 9점 캘리브레이션으로 찾아낸 실제 광학 중심으로 교체 - solveHomographyWithOptimalCenter()의
+  /// 결과와 함께 호출됨 (기본값은 센서 해상도의 기하학적 중심 320,240).
+  void setOpticalCenter(double cx, double cy);
+
   void resetMatrix();
 
   void logTrace(String label, double rawX, double rawY, double zValue);
@@ -30,6 +34,17 @@ abstract interface class CoordinateRepository {
   /// Solves the 3x3 homography matrix (9 coefficients) for the given
   /// calibration point correspondences.
   List<double> solveHomography(
+    List<Point<double>> src,
+    List<double> zs,
+    List<Point<double>> dst,
+  );
+
+  /// Same calibration-point correspondences as [solveHomography], but also
+  /// searches for the (cx, cy) optical center that minimizes the 9 points'
+  /// own reprojection error, instead of assuming it's exactly the sensor's
+  /// geometric center (320, 240). Apply the result with [setOpticalCenter]
+  /// before [setHomographyMatrix].
+  ({double cx, double cy, List<double> matrix}) solveHomographyWithOptimalCenter(
     List<Point<double>> src,
     List<double> zs,
     List<Point<double>> dst,

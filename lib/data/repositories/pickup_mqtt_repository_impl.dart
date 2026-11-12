@@ -25,6 +25,8 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
       StreamController<Map<String, dynamic>?>.broadcast();
   final StreamController<void> _createTestOrdersController = StreamController<void>.broadcast();
   final StreamController<void> _clearTestOrdersController = StreamController<void>.broadcast();
+  final StreamController<int> _fillGridTestController = StreamController<int>.broadcast();
+  final StreamController<void> _clearFillGridTestController = StreamController<void>.broadcast();
 
   PickupMqttRepositoryImpl() {
     _service = MqttService(
@@ -44,6 +46,8 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
       onThemeChanged: (themeJson) => _themeChangedController.add(themeJson),
       onCreateTestOrders: () => _createTestOrdersController.add(null),
       onClearTestOrders: () => _clearTestOrdersController.add(null),
+      onFillGridTest: (count) => _fillGridTestController.add(count),
+      onClearFillGridTest: () => _clearFillGridTestController.add(null),
     );
     _service.isConnected.addListener(_forwardConnectionState);
   }
@@ -77,6 +81,12 @@ class PickupMqttRepositoryImpl implements PickupMqttRepository {
 
   @override
   Stream<void> get clearTestOrdersStream => _clearTestOrdersController.stream;
+
+  @override
+  Stream<int> get fillGridTestStream => _fillGridTestController.stream;
+
+  @override
+  Stream<void> get clearFillGridTestStream => _clearFillGridTestController.stream;
 
   @override
   Future<void> connect() => _service.connect();

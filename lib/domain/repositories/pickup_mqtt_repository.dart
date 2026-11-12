@@ -36,6 +36,10 @@ abstract interface class PickupMqttRepository {
   // buttons — see MqttService.onCreateTestOrders/onClearTestOrders.
   Stream<void> get createTestOrdersStream;
   Stream<void> get clearTestOrdersStream;
+  // FlowHub's Pickup Table Theme screen's "Fill Grid Test" buttons — see
+  // MqttService.onFillGridTest/onClearFillGridTest.
+  Stream<int> get fillGridTestStream;
+  Stream<void> get clearFillGridTestStream;
 
   Future<void> connect();
 
