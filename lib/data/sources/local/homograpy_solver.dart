@@ -7,8 +7,8 @@ import 'coordinate_transformer.dart';
 
 class HomographySolver {
   /// 9개의 점을 바탕으로 3x3 호모그래피 행렬(9개 계수)을 산출합니다.
-  /// [cx]/[cy]를 지정하면 그 중심점 기준으로, 생략하면 현재
-  /// CoordinateTransformer.opticalCenterX/Y 기준으로 바닥 투영 후 피팅함.
+  /// Projects onto the floor around [cx]/[cy] when given, otherwise around the
+  /// current CoordinateTransformer.opticalCenterX/Y, then fits.
   static List<double> solve(
     List<Point<double>> src,
     List<double> zs,
@@ -54,9 +54,12 @@ class HomographySolver {
     return res; // [h0, h1, h2, h3, h4, h5, h6, h7, h8]
   }
 
-  /// 주어진 중심점(cx,cy)과 호모그래피로, 9개 보정점 전체의 재투영
-  /// 오차(제곱합)를 계산 - solveWithOptimalCenter()가 후보 중심점들을
-  /// 비교하는 기준.
+  /// Sum of squared reprojection errors of all 9 calibration points for the
+  /// given center (cx, cy) and homography.
+  /// The score solveWithOptimalCenter() compares candidate centers by.
+  /// 1. Project each source point onto the floor around (cx, cy)
+  /// 2. Map it through the homography [h]
+  /// 3. Add the squared distance to its destination point
   static double _reprojectionError(
     List<Point<double>> src,
     List<double> zs,
@@ -79,19 +82,24 @@ class HomographySolver {
     return totalSqErr;
   }
 
-  /// [카메라 광학 중심점 자동 탐색]
-  /// (320,240)은 센서 해상도의 기하학적 중심일 뿐, 카메라가 실제로 수직
-  /// 아래를 내려다보는 지점(렌즈 설치 오차 포함)과 다를 수 있음 - 이 오차는
-  /// 캘리브레이션에 쓴 물체와 "같은 높이(z) 비율"을 쓰는 물체에 대해서는
-  /// 호모그래피 피팅 과정에서 자동으로 흡수되어 드러나지 않지만, 전혀 다른
-  /// 높이(예: 실측 불가능한 아이스컵의 가정 높이)를 쓰는 물체에는 그
-  /// 차이만큼 보정되지 않은 오차로 남아 가장자리일수록 크게 드러남
-  /// (9점 캘리브레이션에서 확인된 증상: 끝 칸에 둔 아이스컵이 한 칸씩
-  /// 안쪽/바깥쪽으로 밀려 보임).
+  /// [Automatic camera optical-center search]
+  /// (320,240) is only the geometric center of the sensor resolution and can
+  /// differ from the point the camera actually looks straight down at (lens
+  /// mounting error included). For objects with the same height (z) ratio as
+  /// the calibration objects, the homography fit absorbs this error and it
+  /// never shows. For objects of a very different height (e.g. the assumed
+  /// height of an ice cup, which can't be measured) it stays as uncorrected
+  /// error that grows toward the edges (symptom seen in 9-point calibration:
+  /// an ice cup in an edge cell appears shifted one cell inward/outward).
   ///
-  /// 중심점을 320,240으로 고정하는 대신, 9개 보정점 자체의 재투영 오차가
-  /// 최소가 되는 (cx,cy)를 격자 탐색으로 찾아낸다 - 매장별로 실측할 필요
-  /// 없이 캘리브레이션 한 번으로 그 설치 환경의 실제 광학 중심을 추정.
+  /// Instead of fixing the center at 320,240, this grid-searches for the
+  /// (cx, cy) that minimizes the reprojection error of the 9 calibration
+  /// points themselves, estimating the install's real optical center from a
+  /// single calibration with no per-store measurement.
+  /// 1. Start from the current center and its fitted matrix
+  /// 2. Coarse search: ±80px around it in 4px steps
+  /// 3. Refine around the best point: ±6px in 1px, then ±1.5px in 0.25px steps
+  /// 4. Refit the matrix at the best center and return both
   static ({double cx, double cy, List<double> matrix}) solveWithOptimalCenter(
     List<Point<double>> src,
     List<double> zs,
@@ -102,7 +110,7 @@ class HomographySolver {
     List<double> bestMatrix = solve(src, zs, dst, cx: bestCx, cy: bestCy);
     double bestErr = _reprojectionError(src, zs, dst, bestCx, bestCy, bestMatrix);
 
-    // 1단계: 넓은 범위(기본 가정 중심점 ±80px)를 4px 간격으로 성긴 탐색
+    // Round 1: coarse search over a wide range (assumed center ±80px) in 4px steps
     double searchCenterX = CoordinateTransformer.opticalCenterX;
     double searchCenterY = CoordinateTransformer.opticalCenterY;
     for (final step in [4.0, 1.0, 0.25]) {
@@ -122,7 +130,7 @@ class HomographySolver {
       bestCx = roundCx;
       bestCy = roundCy;
       bestErr = roundErr;
-      searchCenterX = bestCx; // 다음(더 촘촘한) 라운드는 이번 라운드 최적점 주변만 탐색
+      searchCenterX = bestCx; // The next (finer) round searches only around this round's best point
       searchCenterY = bestCy;
     }
 

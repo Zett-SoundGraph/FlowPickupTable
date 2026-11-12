@@ -19,8 +19,10 @@ abstract interface class CoordinateRepository {
 
   void setHomographyMatrix(List<double> matrix);
 
-  /// 9점 캘리브레이션으로 찾아낸 실제 광학 중심으로 교체 - solveHomographyWithOptimalCenter()의
-  /// 결과와 함께 호출됨 (기본값은 센서 해상도의 기하학적 중심 320,240).
+  /// Replaces the optical center with the real one the 9-point calibration
+  /// found. Called together with the result of
+  /// solveHomographyWithOptimalCenter() (the default is the sensor
+  /// resolution's geometric center, 320,240).
   void setOpticalCenter(double cx, double cy);
 
   void resetMatrix();

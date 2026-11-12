@@ -5,11 +5,12 @@ import 'package:pickup_table/core/constants/app_constants.dart';
 
 class CoordinateTransformer {
   // [굴절/투영 상수] ToF 센서의 초점 거리 (수직 Z 계산을 위한 상수)
-  // 센서 해상도(640x480)의 기하학적 중심일 뿐, 카메라가 실제로 수직으로
-  // 내려다보는 광학 중심(렌즈 설치 오차/틀어짐 포함)과 정확히 일치한다는
-  // 보장은 없음 - 9점 캘리브레이션 시 HomographySolver.solveWithOptimalCenter()가
-  // 이 값들을 실측 기반으로 덮어씀 (setOpticalCenter 참고). 캘리브레이션 전이나
-  // 리셋 직후엔 이 기본값으로 동작.
+  // This is only the geometric center of the sensor resolution (640x480);
+  // nothing guarantees it matches the optical center the camera actually
+  // looks straight down at (lens mounting error / tilt included). The 9-point
+  // calibration overwrites these from measured data through
+  // HomographySolver.solveWithOptimalCenter() (see setOpticalCenter). Before
+  // calibration, or right after a reset, these defaults are used.
   static const double _defaultOpticalCenterX = 320.0;
   static const double _defaultOpticalCenterY = 240.0;
   static double opticalCenterX = _defaultOpticalCenterX;
@@ -34,8 +35,10 @@ class CoordinateTransformer {
     debugPrint("🚨 [MATRIX_UPDATED] Homography Matrix Applied.");
   }
 
-  /// 9점 캘리브레이션에서 실측 기반으로 찾아낸 "진짜" 광학 중심으로 교체.
-  /// solveWithOptimalCenter()의 결과와 함께, 캘리브레이션 완료 시 한 번 호출됨.
+  /// Replaces the optical center with the "real" one the 9-point calibration
+  /// found from measured data.
+  /// Called once when calibration completes, together with the result of
+  /// solveWithOptimalCenter().
   static void setOpticalCenter(double cx, double cy) {
     opticalCenterX = cx;
     opticalCenterY = cy;
@@ -47,10 +50,11 @@ class CoordinateTransformer {
   static Offset getFloorProjectedOffset(double rawX, double rawY, double zRaw) =>
       floorProjectedOffsetWithCenter(rawX, rawY, zRaw, opticalCenterX, opticalCenterY);
 
-  /// getFloorProjectedOffset()과 동일한 계산이지만, 중심점(cx,cy)을 직접
-  /// 지정할 수 있는 버전 - HomographySolver.solveWithOptimalCenter()가 여러
-  /// 후보 중심점에 대해 재투영 오차를 비교할 때 전역 상태(opticalCenterX/Y)를
-  /// 건드리지 않고 테스트해보기 위해 필요함.
+  /// Same calculation as getFloorProjectedOffset(), but with the center
+  /// (cx, cy) passed in explicitly.
+  /// HomographySolver.solveWithOptimalCenter() needs this to compare the
+  /// reprojection error of many candidate centers without touching the
+  /// global state (opticalCenterX/Y).
   static Offset floorProjectedOffsetWithCenter(
       double rawX, double rawY, double zRaw, double cx, double cy) {
     // 1. 중심 기준 상대 좌표

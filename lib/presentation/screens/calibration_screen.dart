@@ -235,14 +235,15 @@
         final List<math.Point<double>> dst = collectedPairs.map((p) => math.Point(p.dst.dx, p.dst.dy)).toList();
         final List<double> zs = collectedPairs.map((p) => p.z).toList();
 
-        // 1. 새 솔버 호출 - 광학 중심(cx,cy)도 9개 점의 재투영 오차가
-        // 최소가 되도록 함께 탐색 (센서 해상도 중심 320,240을 그대로
-        // 가정하면, 그 가정과 실제 카메라 중심이 다를 때 캘리브레이션에
-        // 쓴 물체와 다른 높이를 쓰는 물체 - 예: 아이스컵의 가정 높이 -
-        // 에서만 오차가 드러남. 자세한 설명은 HomographySolver.solveWithOptimalCenter() 참고)
+        // 1. Run the new solver - it also searches for the optical center
+        // (cx, cy) that minimizes the 9 points' reprojection error (assuming
+        // the sensor resolution's center 320,240 as is, any gap between that
+        // assumption and the real camera center shows only on objects of a
+        // different height than the calibration objects - e.g. an ice cup's
+        // assumed height. See HomographySolver.solveWithOptimalCenter())
         final result = _coordinateRepository.solveHomographyWithOptimalCenter(src, zs, dst);
 
-        // 2. Transformer에 적용 (중심점 먼저, 그 다음 그 중심점 기준으로 피팅된 행렬)
+        // 2. Apply to the transformer (the center first, then the matrix fitted around it)
         _coordinateRepository.setOpticalCenter(result.cx, result.cy);
         _coordinateRepository.setHomographyMatrix(result.matrix);
 

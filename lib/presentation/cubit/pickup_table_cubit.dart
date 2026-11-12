@@ -329,13 +329,13 @@ class PickupTableCubit extends Cubit<PickupTableState> {
       debugPrint("📏 저장된 설치 높이 복구 완료: ${savedHeight}mm");
     }
 
-    // 캘리브레이션으로 찾아낸 광학 중심 복구 - 없으면(예: 이 기능 추가 전에
-    // 저장된 캘리브레이션) 기본값(320,240)을 그대로 씀.
+    // Restore the optical center found by calibration - when missing (e.g. a
+    // calibration saved before this feature) the default (320,240) is kept.
     final double? savedCx = prefs.getDouble('optical_center_x');
     final double? savedCy = prefs.getDouble('optical_center_y');
     if (savedCx != null && savedCy != null) {
       _coordinateRepository.setOpticalCenter(savedCx, savedCy);
-      debugPrint("🎯 저장된 광학 중심 복구 완료: cx=$savedCx, cy=$savedCy");
+      debugPrint("🎯 Restored saved optical center: cx=$savedCx, cy=$savedCy");
     }
 
     _irValue = prefs.getInt('ir_value') ?? 51;
@@ -444,12 +444,12 @@ class PickupTableCubit extends Cubit<PickupTableState> {
       final zValues = data.map((e) => e.z).toList();
       final dstPoints = data.map((e) => Point(e.dst.dx, e.dst.dy)).toList();
 
-      // 광학 중심(cx,cy)도 9개 점의 재투영 오차가 최소가 되도록 같이 탐색함 -
-      // 센서 해상도 중심(320,240)이 실제 카메라가 수직으로 내려다보는
-      // 지점과 정확히 일치한다는 보장이 없고, 이 차이는 캘리브레이션에 쓴
-      // 물체와 다른 높이(z)를 쓰는 물체(예: 실제 높이를 잴 수 없는
-      // 아이스컵)에서만 보정되지 않은 오차로 드러남 (자세한 설명은
-      // HomographySolver.solveWithOptimalCenter() 참고).
+      // Also searches for the optical center (cx, cy) that minimizes the 9
+      // points' reprojection error - nothing guarantees the sensor resolution's
+      // center (320,240) is where the camera actually looks straight down, and
+      // that gap shows as uncorrected error only on objects of a different
+      // height (z) than the calibration objects (e.g. an ice cup, whose real
+      // height can't be measured). See HomographySolver.solveWithOptimalCenter().
       final result = _coordinateRepository.solveHomographyWithOptimalCenter(srcPoints, zValues, dstPoints);
       final List<double> hMatrix = result.matrix;
 
@@ -459,7 +459,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
       await prefs.setString('polynomial_coeffs', jsonEncode(hMatrix));
       await prefs.setDouble('optical_center_x', result.cx);
       await prefs.setDouble('optical_center_y', result.cy);
-      debugPrint("✅ [Save] 호모그래피 행렬 저장 완료 (광학중심 cx=${result.cx}, cy=${result.cy})");
+      debugPrint("✅ [Save] Homography matrix saved (optical center cx=${result.cx}, cy=${result.cy})");
 
       await prefs.setDouble('sensor_height', AppConstants.totalSensorHeight);
 
@@ -735,7 +735,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
         _gridRowOffsets[no] = allocation[i].rowOffsets;
       }
     }
-    debugPrint('🟦 [Grid] Fill Grid Test: ${allocation.length}개 그룹 생성 (unit=$count)');
+    debugPrint('🟦 [Grid] Fill Grid Test: ${allocation.length} groups created (unit=$count)');
     emit(state.copyWith(frameRevision: state.frameRevision + 1));
   }
 
