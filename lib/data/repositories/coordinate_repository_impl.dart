@@ -33,6 +33,10 @@ class CoordinateRepositoryImpl implements CoordinateRepository {
       CoordinateTransformer.setHomographyMatrix(matrix);
 
   @override
+  void setOpticalCenter(double cx, double cy) =>
+      CoordinateTransformer.setOpticalCenter(cx, cy);
+
+  @override
   void resetMatrix() => CoordinateTransformer.resetMatrix();
 
   @override
@@ -52,4 +56,12 @@ class CoordinateRepositoryImpl implements CoordinateRepository {
     List<Point<double>> dst,
   ) =>
       HomographySolver.solve(src, zs, dst);
+
+  @override
+  ({double cx, double cy, List<double> matrix}) solveHomographyWithOptimalCenter(
+    List<Point<double>> src,
+    List<double> zs,
+    List<Point<double>> dst,
+  ) =>
+      HomographySolver.solveWithOptimalCenter(src, zs, dst);
 }
