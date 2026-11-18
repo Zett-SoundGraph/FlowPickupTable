@@ -19,8 +19,7 @@ import 'package:pickup_table/core/utils/log.dart';
 import 'package:pickup_table/domain/entities/index.dart';
 import 'package:pickup_table/domain/entities/pickup_table_theme/pickup_table_theme_selection.dart';
 import 'package:pickup_table/domain/repositories/index.dart';
-import 'package:pickup_table/domain/usecases/device/get_device_info_usecase.dart';
-import 'package:pickup_table/domain/usecases/device/observe_device_info_changed_usecase.dart';
+import 'package:pickup_table/domain/repositories/device_repository.dart';
 import 'package:pickup_table/presentation/screens/calibration_screen.dart' show CalibrationPair;
 import 'package:pickup_table/presentation/cubit/pickup_table_state.dart';
 
@@ -40,14 +39,13 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     this._languageRepository,
     this._orderRepository,
     this._coordinateRepository,
-    this._getDeviceInfo,
-    this._observeDeviceInfoChanged,
+    this._deviceRepository,
   ) : super(const PickupTableState()) {
     _loadSavedCalibration();
     _initializeServer();
     _loadIcons();
     unawaited(_loadDeviceInfo());
-    _deviceInfoChangedSubscription = _observeDeviceInfoChanged().listen(
+    _deviceInfoChangedSubscription = _deviceRepository.deviceInfoChanges.listen(
       (_) => unawaited(_loadDeviceInfo()),
     );
   }
@@ -58,15 +56,14 @@ class PickupTableCubit extends Cubit<PickupTableState> {
   final CoordinateRepository _coordinateRepository;
 
   // FlowUpdater link: the device record is only logged for now (no UI yet).
-  final GetDeviceInfoUseCase _getDeviceInfo;
-  final ObserveDeviceInfoChangedUseCase _observeDeviceInfoChanged;
+  final DeviceRepository _deviceRepository;
   StreamSubscription<void>? _deviceInfoChangedSubscription;
 
   /// Reads the device record from FlowUpdater and logs it. No UI yet: the
   /// connection check is done through logcat (tag `PickupTable`).
   Future<void> _loadDeviceInfo() async {
     try {
-      final device = await _getDeviceInfo();
+      final device = await _deviceRepository.getDeviceInfo();
       if (isClosed) return;
       Log.i('PickupTable', 'Device info loaded: $device');
     } catch (e) {

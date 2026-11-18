@@ -24,9 +24,6 @@ import '../../domain/repositories/index.dart' as _i445;
 import '../../domain/repositories/language_repository.dart' as _i690;
 import '../../domain/repositories/order_repository.dart' as _i507;
 import '../../domain/repositories/pickup_mqtt_repository.dart' as _i754;
-import '../../domain/usecases/device/get_device_info_usecase.dart' as _i677;
-import '../../domain/usecases/device/observe_device_info_changed_usecase.dart'
-    as _i373;
 import '../../presentation/cubit/pickup_table_cubit.dart' as _i712;
 
 // initializes the registration of main-scope dependencies inside of GetIt
@@ -48,17 +45,12 @@ _i174.GetIt $initGetIt(
       () => _i1039.CoordinateRepositoryImpl());
   gh.lazySingleton<_i454.DeviceRepository>(
       () => _i34.DeviceRepositoryImpl(gh<_i21.FlowUpdaterService>()));
-  gh.factory<_i677.GetDeviceInfoUseCase>(
-      () => _i677.GetDeviceInfoUseCase(gh<_i454.DeviceRepository>()));
-  gh.factory<_i373.ObserveDeviceInfoChangedUseCase>(() =>
-      _i373.ObserveDeviceInfoChangedUseCase(gh<_i454.DeviceRepository>()));
   gh.factory<_i712.PickupTableCubit>(() => _i712.PickupTableCubit(
         gh<_i445.PickupMqttRepository>(),
         gh<_i445.LanguageRepository>(),
         gh<_i445.OrderRepository>(),
         gh<_i445.CoordinateRepository>(),
-        gh<_i677.GetDeviceInfoUseCase>(),
-        gh<_i373.ObserveDeviceInfoChangedUseCase>(),
+        gh<_i454.DeviceRepository>(),
       ));
   return getIt;
 }
