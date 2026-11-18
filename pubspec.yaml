@@ -49,6 +49,14 @@ dependencies:
   injectable: ^2.7.1+4
   freezed_annotation: ^3.1.0
   flutter_bloc: ^9.1.1
+  # FlowUpdater IPC SDK (Android Messenger). Same source and ref as
+  # FlowKioskApp. `soundgraph` is an SSH host alias each developer defines in
+  # ~/.ssh/config (HostName github.com + their own key).
+  flow_updater_sdk:
+    git:
+      url: git@soundgraph:SoundGraph-Value-Creation-Group/FlowUpdater.git
+      path: packages/flow_updater_sdk
+      ref: features/communicate-ipc-flow-app
 
 dev_dependencies:
   flutter_test:

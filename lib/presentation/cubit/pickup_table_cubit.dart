@@ -15,9 +15,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:pickup_table/core/constants/index.dart';
 import 'package:pickup_table/core/theme/pickup_table_grid_layout.dart';
 import 'package:pickup_table/core/utils/diag_logger.dart';
+import 'package:pickup_table/core/utils/log.dart';
 import 'package:pickup_table/domain/entities/index.dart';
 import 'package:pickup_table/domain/entities/pickup_table_theme/pickup_table_theme_selection.dart';
 import 'package:pickup_table/domain/repositories/index.dart';
+import 'package:pickup_table/domain/usecases/device/get_device_info_usecase.dart';
+import 'package:pickup_table/domain/usecases/device/observe_device_info_changed_usecase.dart';
 import 'package:pickup_table/presentation/screens/calibration_screen.dart' show CalibrationPair;
 import 'package:pickup_table/presentation/cubit/pickup_table_state.dart';
 
@@ -37,16 +40,39 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     this._languageRepository,
     this._orderRepository,
     this._coordinateRepository,
+    this._getDeviceInfo,
+    this._observeDeviceInfoChanged,
   ) : super(const PickupTableState()) {
     _loadSavedCalibration();
     _initializeServer();
     _loadIcons();
+    unawaited(_loadDeviceInfo());
+    _deviceInfoChangedSubscription = _observeDeviceInfoChanged().listen(
+      (_) => unawaited(_loadDeviceInfo()),
+    );
   }
 
   final PickupMqttRepository _pickupRepository;
   final LanguageRepository _languageRepository;
   final OrderRepository _orderRepository;
   final CoordinateRepository _coordinateRepository;
+
+  // FlowUpdater link: the device record is only logged for now (no UI yet).
+  final GetDeviceInfoUseCase _getDeviceInfo;
+  final ObserveDeviceInfoChangedUseCase _observeDeviceInfoChanged;
+  StreamSubscription<void>? _deviceInfoChangedSubscription;
+
+  /// Reads the device record from FlowUpdater and logs it. No UI yet: the
+  /// connection check is done through logcat (tag `PickupTable`).
+  Future<void> _loadDeviceInfo() async {
+    try {
+      final device = await _getDeviceInfo();
+      if (isClosed) return;
+      Log.i('PickupTable', 'Device info loaded: $device');
+    } catch (e) {
+      Log.w('PickupTable', 'getDeviceInfo failed: $e');
+    }
+  }
 
   StreamSubscription<String>? _mqttLogSubscription;
   StreamSubscription<String>? _customerScanSubscription;
@@ -56,6 +82,8 @@ class PickupTableCubit extends Cubit<PickupTableState> {
   StreamSubscription<Map<String, dynamic>?>? _themeChangedSubscription;
   StreamSubscription<void>? _createTestOrdersSubscription;
   StreamSubscription<void>? _clearTestOrdersSubscription;
+  StreamSubscription<int>? _fillGridTestSubscription;
+  StreamSubscription<void>? _clearFillGridTestSubscription;
 
   // 화면 정중앙(Center 위젯)에 떠 있는 PickupBackgroundVideo의 실제 크기
   // (1800x960)보다 조금 더 넉넉한 "안전 영역" — 이 밖에 중심점이 찍히는
@@ -137,6 +165,13 @@ class PickupTableCubit extends Cubit<PickupTableState> {
   // renderer knows where to carve the staircase notch. A single-element
   // list (e.g. [3]) means one plain row, no step at all.
   final Map<String, List<int>> _gridRowWidths = {};
+  // orderNo -> per-row horizontal offset, same order as [_gridRowWidths] —
+  // only ever set by [_fillGridTest]'s "ㄱ"-oriented tromino half (see
+  // [_buildMixedTrominoAllocation]); every other group has no entry here,
+  // which keeps [_gridRowWidths]'s own left-aligned-only rendering
+  // unchanged (see [steppedCardPath]'s doc comment for why that half needs
+  // this at all).
+  final Map<String, List<int>> _gridRowOffsets = {};
   // orderNo -> once every one of its cells first had a live cup detected
   // in it simultaneously (dashed guide group -> solid matched group).
   final Map<String, DateTime> _gridMatchedAt = {};
@@ -167,16 +202,23 @@ class PickupTableCubit extends Cubit<PickupTableState> {
   // meant to make "did cell X actually register as occupied" directly
   // answerable from logcat, without needing to also watch the screen).
   Set<int> _lastLoggedOccupiedGridCells = {};
-  // orderNos _updateGridOccupancy should never touch — only ever the one
-  // synthetic "already timed out" test order createTestOrders() fabricates
-  // (see below), since there's no real cup for it and a real occupancy
-  // check would otherwise immediately un-match it the instant it runs.
+  // orderNos whose EMPTY cells _updateGridOccupancy ignores — only ever the
+  // synthetic timed-out/highlighted test orders createTestOrders()
+  // fabricates (see below), since there's no real cup for them and a real
+  // occupancy check would otherwise immediately un-match them the instant
+  // it runs. Unpinned once a real cup is placed on them (see
+  // _updateGridOccupancy), so removing that cup ghosts/completes normally.
   final Set<String> _gridPinnedOrderNos = {};
   // Every orderNo createTestOrders() has created, so clearTestOrders() can
   // find and remove exactly those (and nothing a real order might be
   // using) regardless of which grid/queue/active-match bucket each has
   // since ended up in.
   final List<String> _testOrderNos = [];
+  // Every orderNo the "Fill Grid Test" buttons have created (see
+  // _fillGridTest) — tracked separately from _testOrderNos since it has
+  // its own dedicated Clear button and its own never-ghost/never-complete
+  // behavior (see the emptied-branch in _updateGridOccupancy).
+  final Set<String> _fillGridTestOrderNos = {};
   // Debounce timestamps for _updateGridOccupancy — WHEN an order's cells
   // most recently became continuously fully-occupied
   // (_gridOccupiedSince) or fully-empty (_gridEmptySince), cleared the
@@ -221,12 +263,14 @@ class PickupTableCubit extends Cubit<PickupTableState> {
   void _clearGridState() {
     _gridCellGroups.clear();
     _gridRowWidths.clear();
+    _gridRowOffsets.clear();
     _gridMatchedAt.clear();
     _gridEmptiedAt.clear();
     _gridGhostMessage.clear();
     _occupiedGridCells = {};
     _gridPinnedOrderNos.clear();
     _testOrderNos.clear();
+    _fillGridTestOrderNos.clear();
     _gridOccupiedSince.clear();
     _gridEmptySince.clear();
   }
@@ -311,6 +355,15 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     if (savedHeight != null) {
       AppConstants.totalSensorHeight = savedHeight;
       debugPrint("📏 저장된 설치 높이 복구 완료: ${savedHeight}mm");
+    }
+
+    // Restore the optical center found by calibration - when missing (e.g. a
+    // calibration saved before this feature) the default (320,240) is kept.
+    final double? savedCx = prefs.getDouble('optical_center_x');
+    final double? savedCy = prefs.getDouble('optical_center_y');
+    if (savedCx != null && savedCy != null) {
+      _coordinateRepository.setOpticalCenter(savedCx, savedCy);
+      debugPrint("🎯 Restored saved optical center: cx=$savedCx, cy=$savedCy");
     }
 
     _irValue = prefs.getInt('ir_value') ?? 51;
@@ -419,12 +472,22 @@ class PickupTableCubit extends Cubit<PickupTableState> {
       final zValues = data.map((e) => e.z).toList();
       final dstPoints = data.map((e) => Point(e.dst.dx, e.dst.dy)).toList();
 
-      final List<double> hMatrix = _coordinateRepository.solveHomography(srcPoints, zValues, dstPoints);
+      // Also searches for the optical center (cx, cy) that minimizes the 9
+      // points' reprojection error - nothing guarantees the sensor resolution's
+      // center (320,240) is where the camera actually looks straight down, and
+      // that gap shows as uncorrected error only on objects of a different
+      // height (z) than the calibration objects (e.g. an ice cup, whose real
+      // height can't be measured). See HomographySolver.solveWithOptimalCenter().
+      final result = _coordinateRepository.solveHomographyWithOptimalCenter(srcPoints, zValues, dstPoints);
+      final List<double> hMatrix = result.matrix;
 
+      _coordinateRepository.setOpticalCenter(result.cx, result.cy);
       _coordinateRepository.setHomographyMatrix(hMatrix);
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('polynomial_coeffs', jsonEncode(hMatrix));
-      debugPrint("✅ [Save] 호모그래피 행렬 저장 완료");
+      await prefs.setDouble('optical_center_x', result.cx);
+      await prefs.setDouble('optical_center_y', result.cy);
+      debugPrint("✅ [Save] Homography matrix saved (optical center cx=${result.cx}, cy=${result.cy})");
 
       await prefs.setDouble('sensor_height', AppConstants.totalSensorHeight);
 
@@ -495,6 +558,10 @@ class PickupTableCubit extends Cubit<PickupTableState> {
         _pickupRepository.createTestOrdersStream.listen((_) => _createTestOrders());
     _clearTestOrdersSubscription =
         _pickupRepository.clearTestOrdersStream.listen((_) => _clearTestOrders());
+    _fillGridTestSubscription =
+        _pickupRepository.fillGridTestStream.listen(_fillGridTest);
+    _clearFillGridTestSubscription =
+        _pickupRepository.clearFillGridTestStream.listen((_) => _clearFillGridTest());
     // themeOverride now defaults to Forest Green (grid mode from boot, no
     // FlowHub message required) — start the occupancy timer up front to
     // match, instead of only when a real SET_PICKUP_TABLE_THEME message
@@ -671,6 +738,192 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     _testOrderNos.clear();
     _updateGridCellGroups();
     emit(state.copyWith(frameRevision: state.frameRevision + 1, highlightedOrders: clearedHighlighted));
+  }
+
+  /// FlowHub's Pickup Table Theme screen's "Fill Grid (N-Cup)" buttons —
+  /// tiles the ENTIRE grid with [count]-cup groups (see
+  /// _buildFillGridAllocation), so every cell on the real table is covered
+  /// by a dashed guide a tester can place a real cup on, anywhere, without
+  /// waiting for a real order. Unlike [_createTestOrders]'s synthetic
+  /// orders, a Fill Grid Test group never ghosts/completes when its cup is
+  /// removed — see the emptied-branch in [_updateGridOccupancy] — it just
+  /// goes back to being an empty guide, ready to be placed on again.
+  /// Idempotent — clears any previous fill-grid batch first.
+  void _fillGridTest(int count) {
+    _clearFillGridTest();
+    final allocation = _buildFillGridAllocation(count);
+    for (int i = 0; i < allocation.length; i++) {
+      final String no = 'Test${i + 1}';
+      final int cellCount = allocation[i].cells.length;
+      _orderRepository.addReadyOrder(no, 'TEST', '', cellCount, 0, 0, cellCount, '');
+      _fillGridTestOrderNos.add(no);
+      _gridCellGroups[no] = allocation[i].cells;
+      _gridRowWidths[no] = allocation[i].rowWidths;
+      if (allocation[i].rowOffsets.isNotEmpty) {
+        _gridRowOffsets[no] = allocation[i].rowOffsets;
+      }
+    }
+    debugPrint('🟦 [Grid] Fill Grid Test: ${allocation.length} groups created (unit=$count)');
+    emit(state.copyWith(frameRevision: state.frameRevision + 1));
+  }
+
+  /// FlowHub's Pickup Table Theme screen's "Clear Fill Grid Test" button —
+  /// removes every group [_fillGridTest] made (tracked by orderNo in
+  /// [_fillGridTestOrderNos]) and nothing else.
+  void _clearFillGridTest() {
+    if (_fillGridTestOrderNos.isEmpty) return;
+    for (final no in List<String>.of(_fillGridTestOrderNos)) {
+      _orderRepository.clearOrderFromQueue(no);
+      final staleKeys = _orderRepository.activeMatches.entries
+          .where((e) => e.value['orderNo'] == no)
+          .map((e) => e.key)
+          .toList();
+      for (final key in staleKeys) {
+        _orderRepository.releaseId(key);
+      }
+      _gridCellGroups.remove(no);
+      _gridRowWidths.remove(no);
+      _gridRowOffsets.remove(no);
+      _gridMatchedAt.remove(no);
+      _gridEmptiedAt.remove(no);
+      _gridGhostMessage.remove(no);
+      _gridOccupiedSince.remove(no);
+      _gridEmptySince.remove(no);
+    }
+    _fillGridTestOrderNos.clear();
+    emit(state.copyWith(frameRevision: state.frameRevision + 1));
+  }
+
+  /// Tiles [PickupTableGridLayout]'s full 9×5 grid for the Fill Grid Test
+  /// buttons — deliberately a different (and denser/more predictable) shape
+  /// family than [_allocateGridCells]'s near-square staircase (that one is
+  /// tuned to look right for a single real order's card; this one is tuned
+  /// to cover the WHOLE table with as few/as evenly-distributed leftover
+  /// cells as possible, and to mix orientations rather than tile every row
+  /// the same way). Deterministic — the same [unitSize] always produces the
+  /// exact same layout, unlike [_allocateGridCells]'s randomized placement.
+  ///
+  /// unitSize 1: every cell its own 1-cup group (nothing to mix).
+  ///
+  /// unitSize 2: vertical dominoes stacked down columns for rows 0-3 (4
+  /// rows, evenly splits into 2 vertical dominoes per column), horizontal
+  /// dominoes across row 4 — 9 is odd, so that last row leaves exactly ONE
+  /// leftover 1-cup cell (not one per row — see this method's earlier
+  /// straight-strip version for what that looked like and why it was
+  /// confusing to read).
+  ///
+  /// unitSize 3: pairs an ㄴ-tromino with its ㄱ-mirror to fill every
+  /// 2-row×3-col block in rows 0-3 (4 rows = 2 such row-bands, 9 columns =
+  /// 3 such col-bands → 6 blocks × 2 trominoes = 12), then tiles the
+  /// remaining row 4 with 3 straight horizontal trominoes — 45 divides
+  /// evenly by 3 so this covers the whole grid with zero leftover. The ㄱ
+  /// half of each pair doesn't touch the card's left edge in its bottom
+  /// row, which [steppedCardPath]/[PlacedSlotPainter] need [rowOffsets] (see
+  /// those doc comments) to draw/tag correctly — every OTHER shape here
+  /// leaves that empty, which keeps their rendering exactly as before.
+  List<({List<int> cells, List<int> rowWidths, List<int> rowOffsets})> _buildFillGridAllocation(
+      int unitSize) {
+    const int columns = PickupTableGridLayout.columns;
+    const int rows = PickupTableGridLayout.rows;
+    final int n = unitSize.clamp(1, columns);
+
+    if (n == 2 && columns == 9 && rows == 5) {
+      return _buildMixedDominoAllocation(columns);
+    }
+    if (n == 3 && columns == 9 && rows == 5) {
+      return _buildMixedTrominoAllocation(columns);
+    }
+
+    // unitSize 1 (and a safety fallback for any other size): simple
+    // left-to-right, top-to-bottom 1×n strips.
+    final List<({List<int> cells, List<int> rowWidths, List<int> rowOffsets})> groups = [];
+    for (int row = 0; row < rows; row++) {
+      int col = 0;
+      while (col < columns) {
+        final int remainingInRow = columns - col;
+        final int width = remainingInRow >= n ? n : remainingInRow;
+        final List<int> cells = [
+          for (int c = 0; c < width; c++) row * columns + col + c,
+        ];
+        groups.add((cells: cells, rowWidths: [width], rowOffsets: const []));
+        col += width;
+      }
+    }
+    return groups;
+  }
+
+  /// unitSize-2 case of [_buildFillGridAllocation] — see that method's doc
+  /// comment for the shape/leftover reasoning. Assumes the current fixed
+  /// 9×5 layout (callers only use this when that holds).
+  List<({List<int> cells, List<int> rowWidths, List<int> rowOffsets})> _buildMixedDominoAllocation(
+      int columns) {
+    final List<({List<int> cells, List<int> rowWidths, List<int> rowOffsets})> groups = [];
+    // Rows 0-3: a vertical domino pair stacked in every column.
+    for (int col = 0; col < columns; col++) {
+      for (int rowStart = 0; rowStart < 4; rowStart += 2) {
+        groups.add((
+          cells: [rowStart * columns + col, (rowStart + 1) * columns + col],
+          rowWidths: [1, 1],
+          rowOffsets: const [],
+        ));
+      }
+    }
+    // Row 4: horizontal dominoes, with the one odd cell left as a single.
+    const int lastRow = 4;
+    int col = 0;
+    while (col + 2 <= columns) {
+      groups.add((
+        cells: [lastRow * columns + col, lastRow * columns + col + 1],
+        rowWidths: [2],
+        rowOffsets: const [],
+      ));
+      col += 2;
+    }
+    while (col < columns) {
+      groups.add((cells: [lastRow * columns + col], rowWidths: [1], rowOffsets: const []));
+      col += 1;
+    }
+    return groups;
+  }
+
+  /// unitSize-3 case of [_buildFillGridAllocation] — see that method's doc
+  /// comment for the shape/zero-leftover reasoning. Assumes the current
+  /// fixed 9×5 layout (callers only use this when that holds).
+  List<({List<int> cells, List<int> rowWidths, List<int> rowOffsets})> _buildMixedTrominoAllocation(
+      int columns) {
+    final List<({List<int> cells, List<int> rowWidths, List<int> rowOffsets})> groups = [];
+
+    List<int> horizontalTriple(int row, int col) =>
+        [for (int c = col; c < col + 3; c++) row * columns + c];
+
+    // One 2-row×3-col block (top-left at row,col) split into an ㄴ-tromino
+    // (left 2 columns, rowWidths [1,2] — its own left edge, no offset
+    // needed) and its ㄱ-mirror (right 2 columns, rowWidths [2,1] with the
+    // bottom row offset 1 — see this method's own doc comment for why).
+    void addNieunGiyeokPair(int row, int col) {
+      groups.add((
+        cells: [row * columns + col, (row + 1) * columns + col, (row + 1) * columns + col + 1],
+        rowWidths: [1, 2],
+        rowOffsets: const [],
+      ));
+      groups.add((
+        cells: [row * columns + col + 1, row * columns + col + 2, (row + 1) * columns + col + 2],
+        rowWidths: [2, 1],
+        rowOffsets: [0, 1],
+      ));
+    }
+
+    // Rows 0-3: 2 row-bands × 3 col-bands of ㄴ+ㄱ pairs.
+    for (final int row in [0, 2]) {
+      for (final int col in [0, 3, 6]) {
+        addNieunGiyeokPair(row, col);
+      }
+    }
+    // Row 4: straight horizontal triples.
+    for (final int col in [0, 3, 6]) {
+      groups.add((cells: horizontalTriple(4, col), rowWidths: [3], rowOffsets: const []));
+    }
+    return groups;
   }
 
   void _handleCalibrationRequested(CalibrationRequest request) {
@@ -1044,6 +1297,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
             _matchedAt.remove(actualOrderNo);
             _gridCellGroups.remove(actualOrderNo);
             _gridRowWidths.remove(actualOrderNo);
+            _gridRowOffsets.remove(actualOrderNo);
             _gridMatchedAt.remove(actualOrderNo);
             _gridEmptiedAt.remove(actualOrderNo);
             _gridGhostMessage.remove(actualOrderNo);
@@ -1695,9 +1949,27 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     final List<String> readyToComplete = [];
     for (final entry in _gridCellGroups.entries) {
       final String orderNo = entry.key;
-      if (_gridPinnedOrderNos.contains(orderNo)) continue;
       final List<int> cells = entry.value;
       final bool allOccupied = cells.every(occupied.contains);
+      if (_gridPinnedOrderNos.contains(orderNo)) {
+        // Pinned (faked timed-out/highlighted test order): ignore its empty
+        // cells, but once a real cup has stayed on them for the debounce
+        // window, unpin it — from then on it follows the normal
+        // matched -> emptied -> thank-you -> complete flow like any other
+        // order, keeping its faked matchedAt/highlight so the color stays.
+        if (allOccupied) {
+          final DateTime since = _gridOccupiedSince.putIfAbsent(orderNo, () => now);
+          if (now.difference(since) >= _gridDebounceDuration) {
+            _gridPinnedOrderNos.remove(orderNo);
+            _gridEmptySince.remove(orderNo);
+            debugPrint('🟪 [Grid] $orderNo cells=$cells -> UNPINNED (real cup placed)');
+            DiagLogger.log("GRID_UNPINNED", "$orderNo cells=$cells occupied=$occupied");
+          }
+        } else {
+          _gridOccupiedSince.remove(orderNo);
+        }
+        continue;
+      }
       final bool allEmpty = cells.every((c) => !occupied.contains(c));
       final bool wasMatched = _gridMatchedAt.containsKey(orderNo);
 
@@ -1731,23 +2003,32 @@ class PickupTableCubit extends Cubit<PickupTableState> {
         DiagLogger.log("GRID_MATCHED", "$orderNo cells=$cells occupied=$occupied");
         changed = true;
       } else if (wasMatched && emptySince != null && now.difference(emptySince) >= _gridDebounceDuration) {
-        // All cells confirmed empty (not just a single dropped frame)
-        // after having been fully matched — start the visual thank-you
-        // window (see buildGridOrderGroups). The message itself is picked
-        // ONCE here (see _gridGhostMessage's own doc comment for why) —
-        // buildGridOrderGroups only ever reads it back, never re-rolls it.
-        _gridMatchedAt.remove(orderNo);
-        _gridEmptiedAt.putIfAbsent(orderNo, () => now);
-        _gridGhostMessage.putIfAbsent(orderNo, () {
-          final orderData = orderDataFor(orderNo);
-          final String lang = (orderData['lang'] as String?)?.isNotEmpty == true
-              ? orderData['lang'] as String
-              : AppConstants.fallbackLanguage;
-          return _languageRepository.pickupMessageFor(lang);
-        });
-        debugPrint('🟨 [Grid] $orderNo cells=$cells -> EMPTIED (ghost window started)');
-        DiagLogger.log("GRID_EMPTIED", "$orderNo cells=$cells occupied=$occupied");
-        changed = true;
+        if (_fillGridTestOrderNos.contains(orderNo)) {
+          // Fill Grid Test groups never ghost/complete when their cup is
+          // removed (see _fillGridTest's doc comment) — just go straight
+          // back to being an empty guide, ready for the next cup.
+          _gridMatchedAt.remove(orderNo);
+          debugPrint('🟦 [Grid] $orderNo cells=$cells -> BACK TO GUIDE (fill grid test)');
+          changed = true;
+        } else {
+          // All cells confirmed empty (not just a single dropped frame)
+          // after having been fully matched — start the visual thank-you
+          // window (see buildGridOrderGroups). The message itself is picked
+          // ONCE here (see _gridGhostMessage's own doc comment for why) —
+          // buildGridOrderGroups only ever reads it back, never re-rolls it.
+          _gridMatchedAt.remove(orderNo);
+          _gridEmptiedAt.putIfAbsent(orderNo, () => now);
+          _gridGhostMessage.putIfAbsent(orderNo, () {
+            final orderData = orderDataFor(orderNo);
+            final String lang = (orderData['lang'] as String?)?.isNotEmpty == true
+                ? orderData['lang'] as String
+                : AppConstants.fallbackLanguage;
+            return _languageRepository.pickupMessageFor(lang);
+          });
+          debugPrint('🟨 [Grid] $orderNo cells=$cells -> EMPTIED (ghost window started)');
+          DiagLogger.log("GRID_EMPTIED", "$orderNo cells=$cells occupied=$occupied");
+          changed = true;
+        }
       }
 
       final DateTime? emptiedAt = _gridEmptiedAt[orderNo];
@@ -1786,6 +2067,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     }
     _gridCellGroups.remove(orderNo);
     _gridRowWidths.remove(orderNo);
+    _gridRowOffsets.remove(orderNo);
     _gridMatchedAt.remove(orderNo);
     _gridEmptiedAt.remove(orderNo);
     _gridGhostMessage.remove(orderNo);
@@ -1826,6 +2108,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
         bounds = bounds.expandToInclude(r);
       }
       final List<int> rowWidths = _gridRowWidths[orderNo] ?? [entry.value.length];
+      final List<int> rowOffsets = _gridRowOffsets[orderNo] ?? const [];
 
       final DateTime? emptiedAt = _gridEmptiedAt[orderNo];
       if (emptiedAt != null) {
@@ -1840,6 +2123,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
           orderNo: orderNo,
           bounds: bounds,
           rowWidths: rowWidths,
+          rowOffsets: rowOffsets,
           state: GridSlotState.thankYou,
           // Read the message cached once at the EMPTIED transition (see
           // _gridGhostMessage's doc comment) — never re-rolled here, since
@@ -1862,6 +2146,7 @@ class PickupTableCubit extends Cubit<PickupTableState> {
         orderNo: orderNo,
         bounds: bounds,
         rowWidths: rowWidths,
+        rowOffsets: rowOffsets,
         state: !isMatched
             ? GridSlotState.guide
             : isHighlighted
@@ -1901,6 +2186,9 @@ class PickupTableCubit extends Cubit<PickupTableState> {
     unawaited(_themeChangedSubscription?.cancel());
     unawaited(_createTestOrdersSubscription?.cancel());
     unawaited(_clearTestOrdersSubscription?.cancel());
+    unawaited(_fillGridTestSubscription?.cancel());
+    unawaited(_clearFillGridTestSubscription?.cancel());
+    unawaited(_deviceInfoChangedSubscription?.cancel());
     _handDetectionTimer?.cancel();
     _irSentTimer?.cancel();
     _adTimer?.cancel();
@@ -1972,6 +2260,13 @@ class GridOrderGroup {
   // element list (e.g. [1] or [3]) means one plain row — no step, just an
   // ordinary rounded rect.
   final List<int> rowWidths;
+  // Per-row horizontal offset, same order as [rowWidths] — only ever
+  // non-empty for the Fill Grid Test's "ㄱ"-oriented tromino half (see
+  // PickupTableCubit._buildMixedTrominoAllocation and
+  // steppedCardPath's doc comment in slot_card_shared.dart). Empty for
+  // every real-order group, which keeps their left-aligned-only rendering
+  // unchanged.
+  final List<int> rowOffsets;
   final GridSlotState state;
   final String lang;
   final String? ghostMessage;
@@ -1980,6 +2275,7 @@ class GridOrderGroup {
     required this.orderNo,
     required this.bounds,
     required this.rowWidths,
+    this.rowOffsets = const [],
     required this.state,
     required this.lang,
     this.ghostMessage,

@@ -40,9 +40,14 @@ const TextStyle tagTextStyle = TextStyle(
 /// internal seam between two rows and disappears once the per-row rects
 /// are unioned, so leaving it sharp is harmless regardless of what the
 /// image actually looks like at that point.
-Path steppedCardPath(Size size, List<int> rowWidths, double radius) {
+Path steppedCardPath(Size size, List<int> rowWidths, double radius, {List<int>? rowOffsets}) {
   if (rowWidths.length <= 1) {
     return Path()..addRRect(RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius)));
+  }
+
+  final bool hasOffset = rowOffsets != null && rowOffsets.any((o) => o != 0);
+  if (hasOffset) {
+    return _offsetSteppedCardPath(size, rowWidths, rowOffsets, radius);
   }
 
   final int maxWidth = rowWidths.reduce(math.max);
@@ -102,6 +107,82 @@ Path steppedCardPath(Size size, List<int> rowWidths, double radius) {
   return result;
 }
 
+/// [rowOffsets]-aware counterpart of [steppedCardPath]'s main algorithm —
+/// only reached when at least one row doesn't start flush against the
+/// card's left edge (e.g. the Fill Grid Test's "ㄱ"-oriented L-tromino
+/// half, whose bottom row is shifted right instead of left). Unlike the
+/// left-aligned-only algorithm above, this can't assume widths only ever
+/// weakly increase going down, so it only rounds the 4 corners of the
+/// WHOLE bounding box (and only where a row's rect actually reaches that
+/// corner) — every internal step/seam stays a plain sharp union corner.
+/// Less polished than the fancy reflex-fillet version above, but correct
+/// for any row layout, which is what actually matters for a shape this
+/// one-off.
+Path _offsetSteppedCardPath(Size size, List<int> rowWidths, List<int> rowOffsets, double radius) {
+  final int maxSpan = [
+    for (int r = 0; r < rowWidths.length; r++) rowOffsets[r] + rowWidths[r],
+  ].reduce(math.max);
+  final double rowHeight = size.height / rowWidths.length;
+  Path result = Path();
+
+  for (int r = 0; r < rowWidths.length; r++) {
+    final double xPx = size.width * rowOffsets[r] / maxSpan;
+    final double wPx = size.width * rowWidths[r] / maxSpan;
+    final Rect rowRect = Rect.fromLTWH(xPx, r * rowHeight, wPx, rowHeight);
+    final bool isFirst = r == 0;
+    final bool isLast = r == rowWidths.length - 1;
+    final bool touchesLeft = rowOffsets[r] == 0;
+    final bool touchesRight = rowOffsets[r] + rowWidths[r] == maxSpan;
+
+    final rrect = RRect.fromRectAndCorners(
+      rowRect,
+      topLeft: isFirst && touchesLeft ? Radius.circular(radius) : Radius.zero,
+      topRight: isFirst && touchesRight ? Radius.circular(radius) : Radius.zero,
+      bottomLeft: isLast && touchesLeft ? Radius.circular(radius) : Radius.zero,
+      bottomRight: isLast && touchesRight ? Radius.circular(radius) : Radius.zero,
+    );
+    result = Path.combine(PathOperation.union, result, Path()..addRRect(rrect));
+  }
+
+  return result;
+}
+
+/// Where [PlacedSlotPainter]'s (and the Pickup Table Theme feature's own
+/// highlight painters') corner tag's hypotenuse sits — bottom-left by
+/// default, mirrored to bottom-right when [mirrored] (the shape's own
+/// bottom row doesn't reach the left edge — see [_offsetSteppedCardPath]'s
+/// doc comment for which shape that is). `a`/`b` match the non-mirrored
+/// triangle's own (0,height-tagSizePx)/(tagSizePx,height) corner order so
+/// every existing caller's divider-trim math (an [_insetLine] between
+/// these two points) keeps working unchanged.
+(Offset a, Offset b) tagHypotenuse(Size size, double tagSizePx, bool mirrored) {
+  return mirrored
+      ? (Offset(size.width, size.height - tagSizePx), Offset(size.width - tagSizePx, size.height))
+      : (Offset(0, size.height - tagSizePx), Offset(tagSizePx, size.height));
+}
+
+/// The corner-tag triangle itself — see [tagHypotenuse].
+Path tagTrianglePath(Size size, double tagSizePx, bool mirrored) {
+  final (Offset a, Offset b) = tagHypotenuse(size, tagSizePx, mirrored);
+  final Offset corner = mirrored ? Offset(size.width, size.height) : Offset(0, size.height);
+  return Path()
+    ..moveTo(a.dx, a.dy)
+    ..lineTo(corner.dx, corner.dy)
+    ..lineTo(b.dx, b.dy)
+    ..close();
+}
+
+/// Where the corner tag's order-number text is centered before rotation —
+/// NOT the same as the [tagTextAnchor] constant (that's the default,
+/// non-mirrored anchor DISTANCE; this resolves it to an actual point for
+/// either corner). See [tagHypotenuse].
+Offset tagTextAnchorPoint(Size size, double anchorPx, bool mirrored) =>
+    mirrored ? Offset(size.width - anchorPx, size.height - anchorPx) : Offset(anchorPx, size.height - anchorPx);
+
+/// The corner tag text's rotation — mirrored across the vertical axis
+/// negates it, same as reflecting any other rotation. See [tagHypotenuse].
+double tagTextRotation(bool mirrored) => mirrored ? -math.pi / 4 : math.pi / 4;
+
 /// A cup slot with a real cup on the table — 188×188, 40px-radius solid
 /// border, with a diagonal corner-tag triangle in the bottom-left. [fill]
 /// decides how much of the card past that corner tag is filled — line
@@ -143,12 +224,18 @@ class PlacedSlotPainter extends CustomPainter {
   // card border — 0 (default) keeps every existing caller's exact prior
   // look (corner-to-corner, flush against the border on both ends).
   final double dividerEndMarginPx;
+  // Only set by the Fill Grid Test's "ㄱ"-oriented L-tromino half — see
+  // [_offsetSteppedCardPath]'s doc comment. Every other caller leaves this
+  // empty, which keeps [rowWidths]'s own left-aligned-only geometry (and
+  // this painter's corner tag staying bottom-left, below) unchanged.
+  final List<int> rowOffsets;
 
   const PlacedSlotPainter({
     required this.border,
     required this.tagBg,
     required this.orderNo,
     this.rowWidths = const [1],
+    this.rowOffsets = const [],
     this.fill = false,
     this.fontFamily,
     this.tagSizePx = tagSize,
@@ -157,24 +244,21 @@ class PlacedSlotPainter extends CustomPainter {
     this.dividerEndMarginPx = 0,
   });
 
+  // The shape's bottom row not reaching the card's left edge is the one
+  // case the corner tag needs to flip to bottom-right instead — see
+  // [tagHypotenuse]'s doc comment.
+  bool get _mirrored => rowOffsets.isNotEmpty && rowOffsets.last != 0;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final path = steppedCardPath(size, rowWidths, cornerRadius);
+    final path = steppedCardPath(size, rowWidths, cornerRadius, rowOffsets: rowOffsets);
     final Rect cardRect = Offset.zero & size;
+    final bool mirrored = _mirrored;
 
     canvas.save();
     canvas.clipPath(path);
 
-    // The bottom-left cell always exists (every row this shape produces is
-    // left-aligned, and the last row is never narrower than 1 cell), so the
-    // tag triangle's fixed (0,height-tagSizePx)/(0,height)/(tagSizePx,height)
-    // coordinates (and the divider's matching hypotenuse) stay correct
-    // regardless of the overall group's row widths.
-    final trianglePath = Path()
-      ..moveTo(0, size.height - tagSizePx)
-      ..lineTo(0, size.height)
-      ..lineTo(tagSizePx, size.height)
-      ..close();
+    final trianglePath = tagTrianglePath(size, tagSizePx, mirrored);
 
     // Outer layer: the solid fill (tag-only in line style, whole card in
     // fill style) that the number (and, in fill style, the divider) get
@@ -187,8 +271,9 @@ class PlacedSlotPainter extends CustomPainter {
       // filled card — see this class's own doc comment for why this only
       // exists in fill style. Pulled in from the border by
       // dividerEndMarginPx on both ends (0 = flush, the original look).
-      Offset dividerA = Offset(0, size.height - tagSizePx);
-      Offset dividerB = Offset(tagSizePx, size.height);
+      final (Offset hypA, Offset hypB) = tagHypotenuse(size, tagSizePx, mirrored);
+      Offset dividerA = hypA;
+      Offset dividerB = hypB;
       if (dividerEndMarginPx > 0) {
         final Offset delta = dividerB - dividerA;
         final double length = delta.distance;
@@ -231,8 +316,9 @@ class PlacedSlotPainter extends CustomPainter {
     canvas.save();
     // Pin the text's own center at the tag's anchor point, then rotate
     // about that point.
-    canvas.translate(textAnchorPx, size.height - textAnchorPx);
-    canvas.rotate(math.pi / 4);
+    final Offset textAnchor = tagTextAnchorPoint(size, textAnchorPx, mirrored);
+    canvas.translate(textAnchor.dx, textAnchor.dy);
+    canvas.rotate(tagTextRotation(mirrored));
     canvas.translate(-textPainter.width / 2, -textPainter.height / 2);
     textPainter.paint(canvas, Offset.zero);
     canvas.restore();
@@ -262,5 +348,6 @@ class PlacedSlotPainter extends CustomPainter {
       oldDelegate.textAnchorPx != textAnchorPx ||
       oldDelegate.fontSizePx != fontSizePx ||
       oldDelegate.dividerEndMarginPx != dividerEndMarginPx ||
-      !listEquals(oldDelegate.rowWidths, rowWidths);
+      !listEquals(oldDelegate.rowWidths, rowWidths) ||
+      !listEquals(oldDelegate.rowOffsets, rowOffsets);
 }

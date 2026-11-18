@@ -71,7 +71,10 @@ android {
         dev {
             dimension "env"
             applicationIdSuffix ".dev"
-            versionNameSuffix "-dev"
+            // No versionNameSuffix: the ".dev" applicationId already tells the
+            // flavors apart, and FlowUpdater DEV only tracks ".dev" apps, so
+            // the version name stays the plain A.BC.YYMMDD it reports.
+            // versionNameSuffix "-dev"
             resValue "string", "app_name", "Cafe Beta PickupTable Dev"
         }
         prod {
@@ -108,9 +111,10 @@ android {
     // — see flowhub/android/app/build.gradle.kts for the fleet-wide
     // convention this mirrors (A.BC.YYMMDD versionName + YYMMDDNN
     // versionCode, both from pubspec.yaml, bumped by hand before each
-    // build). Uses `flutterVersionName` (not `variant.versionName`) so the
-    // dev flavor's `versionNameSuffix "-dev"` doesn't make "dev" appear
-    // twice in the filename. Uses the older applicationVariants API (not
+    // build). Uses `flutterVersionName` (the raw pubspec.yaml value), which
+    // equals `variant.versionName` now that the dev flavor has no
+    // versionNameSuffix (see productFlavors above).
+    // Uses the older applicationVariants API (not
     // androidComponents.onVariants) — the newer Variant API's
     // `output.outputFileName` didn't resolve against this project's AGP
     // version.

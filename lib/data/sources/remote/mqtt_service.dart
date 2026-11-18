@@ -74,6 +74,12 @@ class MqttService {
   // buttons — see CREATE_TEST_ORDERS/CLEAR_TEST_ORDERS dispatch below.
   final VoidCallback? onCreateTestOrders;
   final VoidCallback? onClearTestOrders;
+  // FlowHub's Pickup Table Theme screen's "Fill Grid Test" buttons — fills
+  // every grid cell with [count]-cup groups (1/2/3) so a physical cup can
+  // be placed on any cell to check real detection without a real order —
+  // see FILL_GRID_TEST/CLEAR_FILL_GRID_TEST dispatch below.
+  final Function(int count)? onFillGridTest;
+  final VoidCallback? onClearFillGridTest;
 
   MqttService({
     this.onLog,
@@ -84,6 +90,8 @@ class MqttService {
     this.onThemeChanged,
     this.onCreateTestOrders,
     this.onClearTestOrders,
+    this.onFillGridTest,
+    this.onClearFillGridTest,
   });
 
   Future<void> connect() async {
@@ -207,6 +215,10 @@ class MqttService {
               onCreateTestOrders?.call();
             } else if (type == 'CLEAR_TEST_ORDERS') {
               onClearTestOrders?.call();
+            } else if (type == 'FILL_GRID_TEST') {
+              onFillGridTest?.call((json['count'] as num?)?.toInt() ?? 1);
+            } else if (type == 'CLEAR_FILL_GRID_TEST') {
+              onClearFillGridTest?.call();
             } else {
               onLog?.call('⚠️ $_topicPickuptableCommand: 알 수 없는 type=$type');
             }

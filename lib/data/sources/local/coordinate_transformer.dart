@@ -5,8 +5,16 @@ import 'package:pickup_table/core/constants/app_constants.dart';
 
 class CoordinateTransformer {
   // [굴절/투영 상수] ToF 센서의 초점 거리 (수직 Z 계산을 위한 상수)
-  static const double opticalCenterX = 320.0;
-  static const double opticalCenterY = 240.0;
+  // This is only the geometric center of the sensor resolution (640x480);
+  // nothing guarantees it matches the optical center the camera actually
+  // looks straight down at (lens mounting error / tilt included). The 9-point
+  // calibration overwrites these from measured data through
+  // HomographySolver.solveWithOptimalCenter() (see setOpticalCenter). Before
+  // calibration, or right after a reset, these defaults are used.
+  static const double _defaultOpticalCenterX = 320.0;
+  static const double _defaultOpticalCenterY = 240.0;
+  static double opticalCenterX = _defaultOpticalCenterX;
+  static double opticalCenterY = _defaultOpticalCenterY;
   static const double _fx = 620.0;
   static const double _fy = 620.0;
 
@@ -18,6 +26,8 @@ class CoordinateTransformer {
 
   static void resetMatrix() {
     _h = [3.0, 0.0, 0.0, 0.0, 2.25, 0.0, 0.0, 0.0, 1.0];
+    opticalCenterX = _defaultOpticalCenterX;
+    opticalCenterY = _defaultOpticalCenterY;
   }
 
   static void setHomographyMatrix(List<double> matrix) {
@@ -25,12 +35,31 @@ class CoordinateTransformer {
     debugPrint("🚨 [MATRIX_UPDATED] Homography Matrix Applied.");
   }
 
+  /// Replaces the optical center with the "real" one the 9-point calibration
+  /// found from measured data.
+  /// Called once when calibration completes, together with the result of
+  /// solveWithOptimalCenter().
+  static void setOpticalCenter(double cx, double cy) {
+    opticalCenterX = cx;
+    opticalCenterY = cy;
+    debugPrint("🚨 [OPTICAL_CENTER_UPDATED] cx=$cx cy=$cy (was $_defaultOpticalCenterX,$_defaultOpticalCenterY)");
+  }
+
   /// [핵심 1: 시차 보정 (Parallax Correction)]
   /// 직선 거리를 수직 거리로 변환하고 바닥면(Floor)으로 투영합니다.
-  static Offset getFloorProjectedOffset(double rawX, double rawY, double zRaw) {
+  static Offset getFloorProjectedOffset(double rawX, double rawY, double zRaw) =>
+      floorProjectedOffsetWithCenter(rawX, rawY, zRaw, opticalCenterX, opticalCenterY);
+
+  /// Same calculation as getFloorProjectedOffset(), but with the center
+  /// (cx, cy) passed in explicitly.
+  /// HomographySolver.solveWithOptimalCenter() needs this to compare the
+  /// reprojection error of many candidate centers without touching the
+  /// global state (opticalCenterX/Y).
+  static Offset floorProjectedOffsetWithCenter(
+      double rawX, double rawY, double zRaw, double cx, double cy) {
     // 1. 중심 기준 상대 좌표
-    double dx = rawX - opticalCenterX;
-    double dy = rawY - opticalCenterY;
+    double dx = rawX - cx;
+    double dy = rawY - cy;
 
     // 2. 수직 거리(Z-Depth) 계산 (굴절 상수 이용)
     double projectionFactor = math.sqrt(1 + math.pow(dx / _fx, 2) + math.pow(dy / _fy, 2));
@@ -42,8 +71,8 @@ class CoordinateTransformer {
 
     // 4. 바닥면 투영 좌표 반환
     return Offset(
-      opticalCenterX + (dx * ratio),
-      opticalCenterY + (dy * ratio),
+      cx + (dx * ratio),
+      cy + (dy * ratio),
     );
   }
 
